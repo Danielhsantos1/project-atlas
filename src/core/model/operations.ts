@@ -91,6 +91,7 @@ export function wallEndForAngle(wall: Wall, angleDeg: number): Vec2 {
 }
 
 const roundPt = (p: Vec2): Vec2 => ({ x: roundTo(p.x, 9), y: roundTo(p.y, 9) });
+const key2 = (p: Vec2) => `${Math.round(p.x * 1e4)}|${Math.round(p.y * 1e4)}`;
 
 /**
  * Altera as extremidades de uma parede mantendo as JUNTAS: extremidades de
@@ -129,12 +130,56 @@ export function setWallEndpoints(project: Project, id: string, next: { start?: V
   return withElements(project, updated);
 }
 
+/**
+ * Paredes colineares encadeadas pelas extremidades (mesmo alinhamento, mesmo pavimento):
+ * formam uma "fachada" contínua que deve se mover junta.
+ */
+export function collinearChain(project: Pick<Project, "elements">, wall: Wall): Wall[] {
+  const walls = project.elements.filter((e): e is Wall => isWall(e) && e.levelId === wall.levelId);
+  const d = sub(wall.end, wall.start);
+  const len = Math.hypot(d.x, d.y);
+  const onLine = (p: Vec2) => Math.abs((p.x - wall.start.x) * d.y - (p.y - wall.start.y) * d.x) / len < 1e-4;
+  const chain = new Map<string, Wall>([[wall.id, wall]]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const w of walls) {
+      if (chain.has(w.id) || !onLine(w.start) || !onLine(w.end)) continue;
+      const touches = [...chain.values()].some((c) => samePoint(c.start, w.start) || samePoint(c.start, w.end) || samePoint(c.end, w.start) || samePoint(c.end, w.end));
+      if (touches) {
+        chain.set(w.id, w);
+        grew = true;
+      }
+    }
+  }
+  return [...chain.values()];
+}
+
 /** Translada um elemento. Aberturas deslizam ao longo da parede (componente projetada). */
 export function moveElement(project: Project, id: string, delta: Vec2): Project {
   const el = requireElement(project, id);
   switch (el.type) {
-    case "wall":
-      return setWallEndpoints(project, id, { start: add(el.start, delta), end: add(el.end, delta) });
+    case "wall": {
+      // Movimento perpendicular ao eixo: o alinhamento colinear inteiro acompanha (fachada contínua).
+      const dir = wallFrame(el).dir;
+      const along = Math.abs(dot(delta, dir));
+      const perpendicular = along < 1e-9 * Math.max(1, Math.hypot(delta.x, delta.y)) + 1e-12;
+      if (!perpendicular) return setWallEndpoints(project, id, { start: add(el.start, delta), end: add(el.end, delta) });
+      let next = project;
+      const chain = collinearChain(project, el);
+      // Move cada parede da cadeia com as juntas; as extremidades compartilhadas da cadeia
+      // já movidas não são movidas de novo (comparação com o estado original).
+      const moved = new Set<string>();
+      for (const w of chain) {
+        const cur = next.elements.find((e) => e.id === w.id) as Wall;
+        const start = moved.has(key2(w.start)) ? cur.start : add(w.start, delta);
+        const end = moved.has(key2(w.end)) ? cur.end : add(w.end, delta);
+        next = setWallEndpoints(next, w.id, { start, end });
+        moved.add(key2(w.start));
+        moved.add(key2(w.end));
+      }
+      return next;
+    }
     case "floor":
     case "object":
       return updateElement(project, id, {
@@ -335,7 +380,12 @@ export function resizeRoom(project: Project, roomId: string, axis: "x" | "y", ne
   );
   if (onEdge.length === 0) throw new DomainError("Não foi encontrada a parede do lado a ser movido.");
   let next = project;
-  for (const w of onEdge) next = moveElement(next, w.id, axis === "x" ? { x: delta, y: 0 } : { x: 0, y: delta });
+  const done = new Set<string>();
+  for (const w of onEdge) {
+    if (done.has(w.id)) continue;
+    for (const c of collinearChain(next, next.elements.find((e) => e.id === w.id) as Wall)) done.add(c.id);
+    next = moveElement(next, w.id, axis === "x" ? { x: delta, y: 0 } : { x: 0, y: delta });
+  }
   // Mantém a semente dentro do ambiente.
   const center = axis === "x" ? { x: (r.minX + r.maxX + delta) / 2, y: room.seed.y } : { x: room.seed.x, y: (r.minY + r.maxY + delta) / 2 };
   return updateElement(next, roomId, { seed: center });

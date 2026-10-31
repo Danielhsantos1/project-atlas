@@ -405,7 +405,8 @@ function ProposalTab({ budget, repo }: { budget: Budget; repo: BudgetRepository 
           <h3 className="mb-2 font-semibold">Empresa</h3>
           <div className="grid grid-cols-3 gap-2">
             {(["name", "document", "phone", "email", "address"] as const).map((k) => (
-              <input key={k} data-testid={`company-${k}`} className={cn(inp, k === "address" ? "col-span-2" : "")} placeholder={{ name: "Nome da empresa", document: "CNPJ", phone: "Telefone", email: "E-mail", address: "Endereço" }[k]} value={company[k] ?? ""} onChange={(e) => setCompany({ ...company, [k]: e.target.value })} />
+              <input key={k} data-testid={`company-${k}`} className={cn(inp, k === "address" ? "col-span-2" : "")} placeholder={{ name: "Nome da empresa", document: "CNPJ", phone: "Telefone", email: "E-mail", address: "Endereço" }[k]} value={company[k] ?? ""} onChange={(e) => setCompany({ ...company, [k]: e.target.value })}
+                onBlur={() => { if (company.name.trim()) repo.saveCompanyProfile(company).catch(reportError); }} />
             ))}
             <Button size="sm" onClick={() => repo.saveCompanyProfile(company).then(() => notify("success", "Dados da empresa salvos.")).catch(reportError)}>Salvar empresa</Button>
           </div>

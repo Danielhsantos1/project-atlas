@@ -79,7 +79,7 @@ async function counts(page) {
     const cy = box.y + box.height / 2;
     const A = { x: cx - 220, y: cy + 160 };
     const B = { x: cx + 220, y: cy - 160 };
-    await page.getByTestId("tool-room").click();
+    await page.getByTestId("room-sala").click();
     await page.mouse.move(A.x, A.y);
     await page.mouse.click(A.x, A.y);
     await page.mouse.move(B.x, B.y, { steps: 5 });

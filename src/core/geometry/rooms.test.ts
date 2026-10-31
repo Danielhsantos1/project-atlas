@@ -140,3 +140,18 @@ describe("telhados", () => {
     }
   });
 });
+
+describe("fachada contínua", () => {
+  it("alargar a sala empurra o alinhamento colinear (cozinha acompanha, sem paredes inclinadas)", async () => {
+    const { buildModernHouse } = await import("../templates/modern-house");
+    let p = buildModernHouse();
+    const sala = p.elements.find((e): e is Room => e.type === "room" && e.name === "Sala de estar")!;
+    const cozinha = p.elements.find((e): e is Room => e.type === "room" && e.name === "Cozinha")!;
+    p = resizeRoom(p, sala.id, "x", 8.5);
+    const walls = levelWalls(p, "terreo");
+    expect(roomShape(walls, sala.seed)?.rect).toEqual({ minX: 9, maxX: 17.5, minY: 8, maxY: 14 });
+    expect(roomShape(walls, cozinha.seed)?.rect).toEqual({ minX: 9, maxX: 17.5, minY: 14, maxY: 20 });
+    // Nenhuma parede ficou inclinada no térreo.
+    for (const w of walls) expect(Math.abs(w.start.x - w.end.x) < 1e-9 || Math.abs(w.start.y - w.end.y) < 1e-9, w.name).toBe(true);
+  });
+});
