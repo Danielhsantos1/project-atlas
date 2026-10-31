@@ -3,7 +3,7 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { Element, Project } from "@/core/model/schema";
-import { isWall } from "@/core/model/schema";
+import { elementLevelId, isWall } from "@/core/model/schema";
 import { openingCenter, wallFrame, wallLocalToPlan } from "@/core/geometry/wall";
 import { distance, toThree, type Vec2 } from "@/core/geometry/vec";
 import { formatLength } from "@/core/units/units";
@@ -46,6 +46,9 @@ function measureLabels(el: Element, project: Project): Label3D[] {
       return [{ key: "sel", position: toThree({ ...el.position, z: el.position.z + 0.3 }), text: `${fmt(el.width)} × ${fmt(el.depth)} · e ${fmt(el.thickness)}` }];
     case "object":
       return [{ key: "sel", position: toThree({ ...el.position, z: el.position.z + el.height + 0.25 }), text: `${fmt(el.length)} × ${fmt(el.width)} × ${fmt(el.height)}` }];
+    case "room":
+    case "roof":
+      return [];
   }
 }
 
@@ -54,17 +57,23 @@ function useLabels(): Label3D[] {
   const selectedId = useEditor((s) => s.selectedId);
   const tool = useEditor((s) => s.tool);
   const point = useCursor((s) => s.point);
+  const activeLevelId = useEditor((s) => s.activeLevelId);
   if (!project) return [];
   const unit = project.settings.displayUnit;
   const labels: Label3D[] = [];
   const sel = project.elements.find((e) => e.id === selectedId);
-  if (sel && tool.kind === "select") labels.push(...measureLabels(sel, project));
+  const elevOf = (id: string | null) => project.levels.find((l) => l.id === id)?.elevation ?? 0;
+  if (sel && tool.kind === "select") {
+    const base = elevOf(elementLevelId(sel, project.elements));
+    labels.push(...measureLabels(sel, project).map((l) => ({ ...l, position: [l.position[0], l.position[1] + base, l.position[2]] as [number, number, number] })));
+  }
+  const toolBase = elevOf(activeLevelId);
   if (point && tool.kind === "wall" && tool.anchor) {
     const mid: Vec2 = { x: (tool.anchor.x + point.x) / 2, y: (tool.anchor.y + point.y) / 2 };
-    labels.push({ key: "tool", position: toThree({ ...mid, z: tool.preset.height + 0.3 }), text: tool.typed ? `${tool.typed} ↵` : formatLength(distance(tool.anchor, point), unit) });
+    labels.push({ key: "tool", position: toThree({ ...mid, z: toolBase + tool.preset.height + 0.3 }), text: tool.typed ? `${tool.typed} ↵` : formatLength(distance(tool.anchor, point), unit) });
   }
-  if (point && (tool.kind === "room" || tool.kind === "floor") && tool.anchor) {
-    const z = tool.kind === "room" ? tool.preset.height + 0.3 : 0.3;
+  if (point && (tool.kind === "room" || tool.kind === "floor" || tool.kind === "roof") && tool.anchor) {
+    const z = toolBase + (tool.kind === "room" ? tool.preset.height + 0.3 : 0.3);
     labels.push({
       key: "tool",
       position: toThree({ x: (tool.anchor.x + point.x) / 2, y: (tool.anchor.y + point.y) / 2, z }),

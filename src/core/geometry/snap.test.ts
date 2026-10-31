@@ -25,7 +25,7 @@ describe("snap", () => {
 
   it("encontra a parede mais próxima pela face", () => {
     const w = (id: string, y: number): Wall => ({
-      id, type: "wall", name: id, start: { x: 0, y }, end: { x: 4, y }, baseElevation: 0, height: 2.8, thickness: 0.2, materialId: "concrete",
+      id, type: "wall", name: id, levelId: "terreo", core: "ceramic-brick", start: { x: 0, y }, end: { x: 4, y }, baseElevation: 0, height: 2.8, thickness: 0.2, materialId: "concrete",
     });
     const hit = findNearestWall([w("a", 0), w("b", 2)], { x: 1.5, y: 1.6 }, 0.5);
     expect(hit?.wall.id).toBe("b");

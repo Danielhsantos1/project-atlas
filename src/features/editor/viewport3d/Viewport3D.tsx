@@ -3,14 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { GizmoHelper, GizmoViewport, Grid, OrbitControls, TransformControls } from "@react-three/drei";
+import { GizmoHelper, GizmoViewport, Grid, OrbitControls, OrthographicCamera, PerspectiveCamera, TransformControls } from "@react-three/drei";
+import { roomShape } from "@/core/geometry/rooms";
 import { projectBounds } from "@/core/geometry/shapes";
-import { moveElement } from "@/core/model/operations";
+import { levelWalls, moveElement } from "@/core/model/operations";
 import { useEditor } from "../store";
 import { useCursor } from "../cursor";
-import { SceneElements, objectName } from "./elements";
+import { SceneElements, objectName, type SceneFilter } from "./elements";
 import { Axes, SiteOutline, ToolPreview } from "./overlays";
 import { LabelProjector, Labels3DOverlay } from "./labels";
+import { FirstPersonController } from "../walkthrough/FirstPerson";
+import { WalkHUD } from "../walkthrough/WalkHUD";
+import { useWalk } from "../walkthrough/store";
 
 /** Contrato mínimo dos controles orbitais usados pelo CameraRig. */
 type OrbitLike = { target: THREE.Vector3; update(): void };
@@ -18,8 +22,15 @@ type OrbitLike = { target: THREE.Vector3; update(): void };
 const GROUND = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const tmp = new THREE.Vector3();
 
-/** Interseção do raio do mouse com o plano do piso (Z = 0), já em coordenadas do domínio. */
+/** Cota do pavimento ativo (o desenho acontece no plano desse pavimento). */
+function activeElevation(): number {
+  const s = useEditor.getState();
+  return s.project?.levels.find((l) => l.id === s.activeLevelId)?.elevation ?? 0;
+}
+
+/** Interseção do raio do mouse com o plano do pavimento ativo, em coordenadas do domínio. */
 function groundPoint(e: ThreeEvent<PointerEvent | MouseEvent>) {
+  GROUND.constant = -activeElevation();
   return e.ray.intersectPlane(GROUND, tmp) ? { x: tmp.x, y: -tmp.z } : null;
 }
 
@@ -39,6 +50,7 @@ function InteractionLayer({ children }: { children: React.ReactNode }) {
       onPointerMove(e: ThreeEvent<PointerEvent>) {
         e.stopPropagation();
         const s = useEditor.getState();
+        if (s.viewMode === "walkthrough") return;
         const p = groundPoint(e);
         if (p) s.pointerMove(p, { shift: e.shiftKey });
         s.hover(s.tool.kind === "select" ? elementIdOf(e.object) : null);
@@ -47,6 +59,7 @@ function InteractionLayer({ children }: { children: React.ReactNode }) {
         e.stopPropagation();
         if (e.delta > 5) return; // foi um arraste de câmera
         const s = useEditor.getState();
+        if (s.viewMode === "walkthrough") return;
         if (s.tool.kind === "select") {
           s.select(elementIdOf(e.object));
           return;
@@ -68,7 +81,7 @@ function InteractionLayer({ children }: { children: React.ReactNode }) {
   return (
     <group {...handlers}>
       {/* Plano de captura do piso (invisível, mas atingível pelo raio). */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.001, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.001 + useEditor((st) => st.project?.levels.find((l) => l.id === st.activeLevelId)?.elevation ?? 0), 0]}>
         <planeGeometry args={[4000, 4000]} />
         <meshBasicMaterial visible={false} />
       </mesh>
@@ -156,17 +169,123 @@ function CameraRig() {
   return null;
 }
 
+/** Filtro de visualização derivado do modo atual. */
+function useSceneFilter(): SceneFilter {
+  const project = useEditor((s) => s.project);
+  const mode = useEditor((s) => s.viewMode);
+  const active = useEditor((s) => s.activeLevelId);
+  const stage = useEditor((s) => s.stage);
+  const interiorRoomId = useEditor((s) => s.interiorRoomId);
+  return useMemo(() => {
+    const levels = project?.levels ?? [];
+    const activeLevel = levels.find((l) => l.id === active);
+    const upTo = (l: { elevation: number }) => !activeLevel || l.elevation <= activeLevel.elevation + 1e-6;
+    const visible =
+      mode === "dollhouse" ? levels.filter(upTo) : mode === "interior" ? levels.filter((l) => l.id === active) : levels;
+    return {
+      levels: new Set(visible.map((l) => l.id)),
+      showRoofs: mode !== "dollhouse" && mode !== "interior" && !(mode === "section"),
+      showCeilings: mode === "complete" || mode === "walkthrough" || mode === "facade",
+      stage: mode === "construction" ? stage : null,
+      interiorRoomId: mode === "interior" ? interiorRoomId : null,
+    };
+  }, [project?.levels, mode, active, stage, interiorRoomId]);
+}
+
+/** Planos de corte globais: casa aberta (dollhouse) e corte arquitetônico. */
+function ClippingController() {
+  const { gl } = useThree();
+  const mode = useEditor((s) => s.viewMode);
+  const section = useEditor((s) => s.section);
+  const elevation = useEditor((s) => s.project?.levels.find((l) => l.id === s.activeLevelId)?.elevation ?? 0);
+  useEffect(() => {
+    const planes: THREE.Plane[] = [];
+    if (mode === "dollhouse") planes.push(new THREE.Plane(new THREE.Vector3(0, -1, 0), elevation + 1.6));
+    if (mode === "section") {
+      planes.push(new THREE.Plane(new THREE.Vector3(0, -1, 0), elevation + section.height));
+      // Mantém o lado com coordenada do domínio MAIOR que a posição do corte (remove a parte frontal/oeste).
+      // Three: x_dom = x, y_dom = −z  ⇒  manter x ≥ pos  e  −z ≥ pos.
+      if (section.axis === "x") planes.push(new THREE.Plane(new THREE.Vector3(1, 0, 0), -section.position));
+      if (section.axis === "y") planes.push(new THREE.Plane(new THREE.Vector3(0, 0, -1), -section.position));
+    }
+    gl.clippingPlanes = planes;
+    gl.localClippingEnabled = planes.length > 0;
+    return () => {
+      gl.clippingPlanes = [];
+    };
+  }, [gl, mode, section, elevation]);
+  return null;
+}
+
+/** Câmera ortográfica para fachadas (vistas técnicas sem perspectiva). */
+function FacadeCamera() {
+  const side = useEditor((s) => s.facade);
+  const project = useEditor((s) => s.project);
+  const { size, controls } = useThree() as unknown as { size: { width: number; height: number }; controls: OrbitLike | null };
+  const b = project ? projectBounds(project) : null;
+  const min = b?.min ?? { x: 0, y: 0 };
+  const max = b?.max ?? { x: project?.site.width ?? 10, y: project?.site.depth ?? 10 };
+  const top = Math.max(b?.maxZ ?? 3, 3) + 2;
+  const cx = (min.x + max.x) / 2;
+  const cy = (min.y + max.y) / 2;
+  const widthAlong = side === "front" || side === "back" ? max.x - min.x : max.y - min.y;
+  const zoom = Math.min(size.width / (widthAlong * 1.3 + 2), size.height / (top * 1.4));
+  const d = 200;
+  const pos: [number, number, number] =
+    side === "front" ? [cx, top / 2, -min.y + d] : side === "back" ? [cx, top / 2, -max.y - d] : side === "right" ? [max.x + d, top / 2, -cy] : [min.x - d, top / 2, -cy];
+  // Os controles orbitais definem para onde a câmera olha: alinha o alvo ao centro da fachada.
+  useEffect(() => {
+    if (!controls) return;
+    controls.target.set(cx, top / 2, -cy);
+    controls.update();
+  }, [controls, cx, cy, top, side]);
+  return <OrthographicCamera makeDefault position={pos} zoom={zoom} near={0.1} far={1000} />;
+}
+
+/** Enquadra o ambiente escolhido no modo interiores. */
+function InteriorFocus() {
+  const { camera, controls } = useThree() as unknown as { camera: THREE.PerspectiveCamera; controls: OrbitLike | null };
+  const roomId = useEditor((s) => s.interiorRoomId);
+  const project = useEditor((s) => s.project);
+  useEffect(() => {
+    if (!project || !roomId || !controls) return;
+    const room = project.elements.find((e) => e.id === roomId);
+    if (!room || room.type !== "room") return;
+    const shape = roomShape(levelWalls(project, room.levelId), room.seed);
+    const level = project.levels.find((l) => l.id === room.levelId);
+    if (!shape || !level) return;
+    const xs = shape.inner.map((p) => p.x);
+    const ys = shape.inner.map((p) => p.y);
+    const c = new THREE.Vector3((Math.min(...xs) + Math.max(...xs)) / 2, level.elevation + 1, -(Math.min(...ys) + Math.max(...ys)) / 2);
+    const r = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 3);
+    controls.target.copy(c);
+    camera.position.set(c.x + r * 0.9, c.y + r * 1.1, c.z + r * 0.9);
+    controls.update();
+  }, [roomId, project, camera, controls]);
+  return null;
+}
+
 export default function Viewport3D() {
   const site = useEditor((s) => s.project?.site);
   const toolKind = useEditor((s) => s.tool.kind);
+  const mode = useEditor((s) => s.viewMode);
+  const quality = useEditor((s) => s.quality);
+  const filter = useSceneFilter();
+  const walking = mode === "walkthrough";
+  const activeElev = useEditor((st) => st.project?.levels.find((l) => l.id === st.activeLevelId)?.elevation ?? 0);
+  useEffect(() => {
+    if (walking) {
+      useWalk.getState().reset();
+      useWalk.getState().respawn(null);
+    }
+  }, [walking]);
   if (!site) return null;
   return (
     <div className="relative size-full" data-testid="viewport-3d" style={{ cursor: toolKind === "select" ? "default" : "crosshair" }}>
       <Canvas
-        shadows
-        dpr={[1, 2]}
-        camera={{ position: [14, 12, 16], fov: 42, near: 0.05, far: 3000 }}
-        gl={{ antialias: true }}
+        shadows={quality !== "baixa"}
+        dpr={quality === "alta" ? [1, 2] : 1}
+        gl={{ antialias: true, preserveDrawingBuffer: true }}
         onPointerMissed={(e) => {
           if (e.type === "click" && useEditor.getState().tool.kind === "select") useEditor.getState().select(null);
         }}
@@ -178,7 +297,7 @@ export default function Viewport3D() {
           castShadow
           position={[18, 30, 12]}
           intensity={1.8}
-          shadow-mapSize={[2048, 2048]}
+          shadow-mapSize={quality === "alta" ? [2048, 2048] : [1024, 1024]}
           shadow-camera-left={-40}
           shadow-camera-right={40}
           shadow-camera-top={40}
@@ -203,20 +322,31 @@ export default function Viewport3D() {
         <SiteOutline site={site} />
 
         <InteractionLayer>
-          <SceneElements />
+          <SceneElements filter={filter} />
         </InteractionLayer>
 
-        <ToolPreview />
-        <LabelProjector />
-        <SelectionGizmo />
-        <CameraRig />
+        {!walking && (
+          <>
+            <group position={[0, activeElev, 0]}>
+              <ToolPreview />
+            </group>
+            <LabelProjector />
+            <SelectionGizmo />
+          </>
+        )}
+        {walking && <FirstPersonController />}
+        {mode === "facade" ? <FacadeCamera /> : <PerspectiveCamera makeDefault position={[14, 12, 16]} fov={42} near={0.05} far={3000} />}
+        {!walking && mode !== "facade" && <CameraRig />}
+        <ClippingController />
+        {mode === "interior" && <InteriorFocus />}
 
-        <OrbitControls makeDefault enableDamping dampingFactor={0.12} maxPolarAngle={Math.PI / 2 - 0.01} minDistance={0.5} maxDistance={1500} />
-        <GizmoHelper alignment="bottom-right" margin={[64, 64]}>
+        {!walking && <OrbitControls makeDefault enableDamping dampingFactor={0.12} enableRotate={mode !== "facade"} maxPolarAngle={Math.PI / 2 - 0.01} minDistance={0.5} maxDistance={1500} />}
+        {!walking && <GizmoHelper alignment="bottom-right" margin={[64, 64]}>
           <GizmoViewport axisColors={["#ff4d5e", "#3d8bff", "#4cd964"]} labels={["X", "Z", "−Y"]} labelColor="#0e1014" />
-        </GizmoHelper>
+        </GizmoHelper>}
       </Canvas>
-      <Labels3DOverlay />
+      {!walking && <Labels3DOverlay />}
+      {walking && <WalkHUD />}
     </div>
   );
 }

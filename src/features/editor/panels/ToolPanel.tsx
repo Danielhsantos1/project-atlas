@@ -1,25 +1,38 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AppWindow, BrickWall, ChevronRight, DoorOpen, Layers, MousePointer2, Search, SquareDashed } from "lucide-react";
+import {
+  AppWindow, Bath, Bed, BedDouble, BrickWall, Briefcase, Car, ChevronRight, CookingPot, DoorOpen, Flame, Footprints, Home, Layers,
+  MousePointer2, Search, ShowerHead, Sofa, Sun, Triangle, WashingMachine, LayoutGrid,
+} from "lucide-react";
 import { LIBRARY, LIBRARY_CATEGORIES, type LibraryItem } from "@/core/library/catalog";
 import { getMaterial } from "@/core/model/materials";
+import { ROOM_TYPE_INFO } from "@/core/model/factory";
+import type { RoofType, RoomType } from "@/core/model/schema";
 import { formatLength } from "@/core/units/units";
 import { cn } from "@/lib/cn";
 import { useEditor, type Tool, type ToolKind } from "../store";
-import { LengthField, MaterialField } from "./fields";
+import { AngleField, LengthField, MaterialField, SelectField } from "./fields";
 
 const TOOLS: Array<{ kind: ToolKind | "door" | "window"; label: string; key: string; icon: React.ComponentType<{ size?: number }> }> = [
   { kind: "select", label: "Selecionar", key: "V", icon: MousePointer2 },
   { kind: "wall", label: "Parede", key: "W", icon: BrickWall },
-  { kind: "room", label: "Ambiente", key: "A", icon: SquareDashed },
-  { kind: "floor", label: "Piso", key: "P", icon: Layers },
   { kind: "door", label: "Porta", key: "D", icon: DoorOpen },
   { kind: "window", label: "Janela", key: "J", icon: AppWindow },
+  { kind: "floor", label: "Piso / laje", key: "P", icon: Layers },
+  { kind: "roof", label: "Telhado", key: "H", icon: Triangle },
 ];
+
+const ROOM_ICONS: Record<RoomType, React.ComponentType<{ size?: number }>> = {
+  sala: Sofa, cozinha: CookingPot, quarto: Bed, suite: BedDouble, banheiro: Bath, lavabo: ShowerHead, garagem: Car,
+  gourmet: Flame, lavanderia: WashingMachine, escritorio: Briefcase, circulacao: Footprints, varanda: Sun, outro: LayoutGrid,
+};
+const ROOM_ORDER: RoomType[] = ["sala", "cozinha", "quarto", "suite", "banheiro", "lavabo", "garagem", "gourmet", "lavanderia", "escritorio", "circulacao", "varanda"];
 
 export const DEFAULT_DOOR = "door-80";
 export const DEFAULT_WINDOW = "window-120x120";
+
+export const ROOF_TYPE_LABEL: Record<RoofType, string> = { hip: "Quatro águas", gable: "Duas águas", shed: "Uma água", flat: "Laje plana" };
 
 function isToolActive(tool: Tool, kind: string): boolean {
   if (kind === "door") return tool.kind === "place" && tool.itemId.startsWith("door");
@@ -30,10 +43,37 @@ function isToolActive(tool: Tool, kind: string): boolean {
 export function ToolPanel() {
   const tool = useEditor((s) => s.tool);
   const unit = useEditor((s) => s.project?.settings.displayUnit ?? "m");
-  const { setTool, activateLibraryItem } = useEditor.getState();
+  const { setTool, activateLibraryItem, setRoomTool } = useEditor.getState();
 
   return (
-    <div className="flex h-full flex-col" data-testid="tool-panel">
+    <div className="flex h-full flex-col overflow-y-auto" data-testid="tool-panel">
+      <div className="border-b border-ink-700 p-2.5">
+        <div className="label-caps mb-2 flex items-center gap-1.5 px-1"><Home size={12} /> Construir cômodos</div>
+        <div className="grid grid-cols-4 gap-1">
+          {ROOM_ORDER.map((t) => {
+            const Icon = ROOM_ICONS[t];
+            const active = tool.kind === "room" && tool.roomType === t;
+            return (
+              <button
+                key={t}
+                data-testid={`room-${t}`}
+                aria-pressed={active}
+                title={`Desenhar ${ROOM_TYPE_INFO[t].label}: clique em dois cantos ou arraste`}
+                onClick={() => setRoomTool(t)}
+                className={cn(
+                  "flex flex-col items-center gap-1 rounded-md border px-0.5 py-1.5 text-[10.5px] leading-tight transition-colors",
+                  active ? "border-accent-line bg-accent-soft text-fg" : "border-transparent text-fg-muted hover:border-ink-600 hover:bg-ink-750 hover:text-fg",
+                )}
+              >
+                <span style={{ color: active ? undefined : ROOM_TYPE_INFO[t].color }} className={active ? "text-accent" : ""}>
+                  <Icon size={17} />
+                </span>
+                <span className="truncate">{ROOM_TYPE_INFO[t].label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <div className="border-b border-ink-700 p-2.5">
         <div className="label-caps mb-2 px-1">Ferramentas</div>
         <div className="grid grid-cols-3 gap-1.5">
@@ -72,10 +112,11 @@ export function ToolPanel() {
 function ToolOptions({ tool, unit }: { tool: Tool; unit: "m" | "cm" | "mm" }) {
   const set = useEditor.getState().setToolOptions;
   const hint: Record<Tool["kind"], string> = {
-    select: "Clique para selecionar. Arraste o gizmo (3D) ou o elemento (2D) para mover. Setas movem pela grade.",
+    select: "Clique em um cômodo, parede ou objeto para editar. Arraste o gizmo (3D) ou o elemento (2D) para mover.",
     wall: "Clique para iniciar e para cada vértice. Digite um comprimento + Enter para medida exata. Shift = ortogonal. Duplo-clique ou Esc encerra.",
-    room: "Clique em dois cantos opostos para criar 4 paredes encadeadas.",
-    floor: "Clique em dois cantos opostos para criar o piso.",
+    room: "Clique em dois cantos opostos (ou arraste). Lados encostados em cômodos existentes reaproveitam a parede.",
+    floor: "Clique em dois cantos opostos para criar o piso ou laje.",
+    roof: "Clique em dois cantos opostos sobre a casa. O beiral é acrescentado automaticamente.",
     place: "Clique no modelo para inserir. Portas e janelas: clique sobre uma parede.",
   };
   return (
@@ -83,17 +124,14 @@ function ToolOptions({ tool, unit }: { tool: Tool; unit: "m" | "cm" | "mm" }) {
       <p className="text-[11.5px] leading-relaxed text-fg-muted" data-testid="tool-hint">{hint[tool.kind]}</p>
       {(tool.kind === "wall" || tool.kind === "room") && (
         <>
+          {tool.kind === "room" && (
+            <SelectField label="Tipo de cômodo" value={tool.roomType} options={ROOM_ORDER.map((t) => ({ value: t, label: ROOM_TYPE_INFO[t].label }))} onChange={(roomType) => set({ roomType })} />
+          )}
           <div className="grid grid-cols-2 gap-2">
             <LengthField label="Altura" value={tool.preset.height} unit={unit} min={0.05} onCommit={(height) => { set({ height }); return true; }} />
             <LengthField label="Espessura" value={tool.preset.thickness} unit={unit} min={0.01} onCommit={(thickness) => { set({ thickness }); return true; }} />
           </div>
-          <MaterialField value={tool.preset.materialId} onChange={(materialId) => set({ materialId })} />
-          {tool.kind === "room" && (
-            <label className="flex cursor-pointer items-center gap-2 text-[12px] text-fg-muted">
-              <input type="checkbox" className="accent-accent" checked={tool.withFloor} onChange={(e) => set({ withFloor: e.target.checked })} />
-              Criar piso no ambiente
-            </label>
-          )}
+          <MaterialField value={tool.preset.materialId} onChange={(materialId) => set({ materialId })} label="Acabamento das paredes" />
         </>
       )}
       {tool.kind === "floor" && (
@@ -101,6 +139,12 @@ function ToolOptions({ tool, unit }: { tool: Tool; unit: "m" | "cm" | "mm" }) {
           <LengthField label="Espessura" value={tool.preset.thickness} unit={unit} min={0.005} onCommit={(thickness) => { set({ thickness }); return true; }} />
           <MaterialField value={tool.preset.materialId} onChange={(materialId) => set({ materialId })} />
         </>
+      )}
+      {tool.kind === "roof" && (
+        <div className="grid grid-cols-2 gap-2">
+          <SelectField label="Tipo" value={tool.roofType} options={(Object.keys(ROOF_TYPE_LABEL) as RoofType[]).map((r) => ({ value: r, label: ROOF_TYPE_LABEL[r] }))} onChange={(roofType) => set({ roofType })} />
+          <AngleField label="Inclinação" value={tool.pitch} onCommit={(pitch) => { set({ pitch }); return pitch >= 0 && pitch <= 60; }} />
+        </div>
       )}
     </div>
   );
@@ -120,7 +164,7 @@ function specSummary(item: LibraryItem, unit: "m" | "cm" | "mm"): string {
 
 function Library({ activeItemId, onPick }: { activeItemId: string | null; onPick(id: string): void }) {
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState<Record<string, boolean>>({ portas: true, janelas: true });
+  const [open, setOpen] = useState<Record<string, boolean>>({ portas: true, janelas: true, estrutura: true });
   const unit = useEditor((s) => s.project?.settings.displayUnit ?? "m");
   const q = query.trim().toLowerCase();
   const groups = useMemo(
@@ -133,7 +177,7 @@ function Library({ activeItemId, onPick }: { activeItemId: string | null; onPick
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-col">
       <div className="p-2.5 pb-2">
         <div className="label-caps mb-2 px-1">Biblioteca</div>
         <div className="relative">
@@ -148,7 +192,7 @@ function Library({ activeItemId, onPick }: { activeItemId: string | null; onPick
           />
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
+      <div className="px-1.5 pb-3">
         {groups.map((g) => {
           const expanded = q.length > 0 || open[g.id];
           return (

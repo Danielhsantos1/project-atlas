@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import type { Element, Project, ProjectSettings, Wall } from "@/core/model/schema";
+import type { Element, Level, Project, ProjectSettings, RoofType, RoomType, Wall } from "@/core/model/schema";
 import { ProjectSchema, isWall } from "@/core/model/schema";
 import { DomainError } from "@/core/model/errors";
 import {
@@ -9,14 +9,18 @@ import {
   deleteElements,
   duplicateElement,
   moveElement,
+  addLevel,
+  deleteLevel,
+  resizeRoom,
   rotateElement,
   setWallEndpoints,
   updateElement,
+  updateLevel,
   wallEndForAngle,
   wallEndForLength,
   type ElementPatch,
 } from "@/core/model/operations";
-import { createFloor, createObject, createOpening, createRoomWalls, createWall } from "@/core/model/factory";
+import { createFloor, createLevel, createObject, createOpening, createRoof, createRoomWithWalls, createWall } from "@/core/model/factory";
 import { getLibraryItem } from "@/core/library/catalog";
 import { findNearestWall, orthoConstrain, snapPoint, wallEndpoints } from "@/core/geometry/snap";
 import { wallLength } from "@/core/geometry/wall";
@@ -38,13 +42,31 @@ export interface FloorPreset {
 export type Tool =
   | { kind: "select" }
   | { kind: "wall"; preset: WallPreset; anchor: Vec2 | null; chainStart: Vec2 | null; typed: string }
-  | { kind: "room"; preset: WallPreset; anchor: Vec2 | null; withFloor: boolean }
+  | { kind: "room"; preset: WallPreset; anchor: Vec2 | null; roomType: RoomType }
+  | { kind: "roof"; anchor: Vec2 | null; roofType: RoofType; pitch: number }
   | { kind: "floor"; preset: FloorPreset; anchor: Vec2 | null }
   | { kind: "place"; itemId: string };
 
 export type ToolKind = Tool["kind"];
 export type ViewMode = "3d" | "2d";
 export type CameraPreset = "fit" | "top" | "front" | "right" | "iso";
+
+/** Modos de visualização do viewport 3D — todos derivados do MESMO modelo. */
+export type ViewMode3D = "complete" | "dollhouse" | "section" | "construction" | "facade" | "interior" | "walkthrough";
+export type FacadeSide = "front" | "back" | "left" | "right";
+export type Quality = "alta" | "media" | "baixa";
+
+/** Etapas da obra (visualização conceitual — não é cronograma nem cálculo). */
+export const CONSTRUCTION_STAGES = [
+  "Terreno",
+  "Fundação (conceitual)",
+  "Estrutura",
+  "Alvenaria",
+  "Cobertura",
+  "Instalações",
+  "Acabamento",
+  "Projeto finalizado",
+] as const;
 export type SaveStatus = "saved" | "dirty" | "saving" | "error";
 
 const HISTORY_LIMIT = 150;
@@ -70,6 +92,26 @@ interface EditorState {
   camera: { preset: CameraPreset; nonce: number };
   /** Estado antes de um arraste em andamento (vira UM passo de histórico). */
   dragOrigin: Project | null;
+  activeLevelId: string;
+  viewMode: ViewMode3D;
+  section: { height: number; axis: "none" | "x" | "y"; position: number };
+  stage: number;
+  facade: FacadeSide;
+  interiorRoomId: string | null;
+  quality: Quality;
+
+  setActiveLevel(id: string): void;
+  addLevelAbove(): void;
+  updateLevel(id: string, patch: Partial<Omit<Level, "id">>): boolean;
+  deleteLevel(id: string): void;
+  setViewMode(mode: ViewMode3D): void;
+  setSection(patch: Partial<EditorState["section"]>): void;
+  setStage(stage: number): void;
+  setFacade(side: FacadeSide): void;
+  setInteriorRoom(id: string | null): void;
+  setQuality(q: Quality): void;
+  resizeRoom(id: string, axis: "x" | "y", size: number): boolean;
+  setRoomTool(roomType: RoomType): void;
 
   load(project: Project): void;
   unload(): void;
@@ -100,7 +142,7 @@ interface EditorState {
   updateSettings(patch: Partial<ProjectSettings>): boolean;
 
   setTool(kind: ToolKind): void;
-  setToolOptions(patch: Partial<WallPreset & FloorPreset & { withFloor: boolean }>): void;
+  setToolOptions(patch: Partial<WallPreset & FloorPreset & { roomType: RoomType; roofType: RoofType; pitch: number }>): void;
   activateLibraryItem(itemId: string): void;
   cancelTool(): void;
   pointerMove(raw: Vec2, mods?: { shift?: boolean }): void;
@@ -126,7 +168,7 @@ export const useEditor = create<EditorState>((set, get) => {
     if (!project) return { point: raw, kind: "free" };
     const anchor = "anchor" in tool ? tool.anchor : null;
     const base = shift && anchor ? orthoConstrain(anchor, raw) : raw;
-    const walls = project.elements.filter(isWall);
+    const walls = project.elements.filter((e): e is Wall => isWall(e) && e.levelId === get().activeLevelId);
     const snapped = snapPoint(base, {
       gridSize: project.settings.gridSize,
       snapToGrid: project.settings.snapToGrid,
@@ -140,7 +182,7 @@ export const useEditor = create<EditorState>((set, get) => {
   }
 
   function addWallSegment(from: Vec2, to: Vec2, preset: WallPreset): boolean {
-    return get().commit((p) => addElements(p, [createWall(p.elements, from, to, preset)]));
+    return get().commit((p) => addElements(p, [createWall(p.elements, from, to, { ...preset, levelId: get().activeLevelId })]));
   }
 
   function selectedElement(): Element | null {
@@ -163,6 +205,48 @@ export const useEditor = create<EditorState>((set, get) => {
     panels: { left: true, right: true },
     camera: { preset: "fit", nonce: 0 },
     dragOrigin: null,
+    activeLevelId: "terreo",
+    viewMode: "complete",
+    section: { height: 1.2, axis: "none", position: 0 },
+    stage: 8,
+    facade: "front",
+    interiorRoomId: null,
+    quality: "alta",
+
+    setActiveLevel(id) {
+      if (get().project?.levels.some((l) => l.id === id)) set({ activeLevelId: id, selectedId: null });
+    },
+    addLevelAbove() {
+      const p = get().project;
+      if (!p) return;
+      const level = createLevel(p.levels);
+      if (get().commit((proj) => addLevel(proj, level))) {
+        set({ activeLevelId: level.id });
+        notify("success", `${level.name} criado na cota ${level.elevation.toFixed(2).replace(".", ",")} m.`);
+      }
+    },
+    updateLevel: (id, patch) => get().commit((p) => updateLevel(p, id, patch)),
+    deleteLevel(id) {
+      if (get().commit((p) => deleteLevel(p, id), null)) {
+        set({ activeLevelId: get().project!.levels[0]!.id });
+      }
+    },
+    setViewMode(mode) {
+      set({ viewMode: mode, view: "3d" });
+      if (mode !== "walkthrough" && mode !== "facade") get().requestCamera(mode === "dollhouse" ? "iso" : "fit");
+    },
+    setSection: (patch) => set({ section: { ...get().section, ...patch } }),
+    setStage: (stage) => set({ stage: Math.min(8, Math.max(1, Math.round(stage))) }),
+    setFacade: (facade) => set({ facade }),
+    setInteriorRoom: (id) => set({ interiorRoomId: id }),
+    setQuality: (quality) => set({ quality }),
+    resizeRoom: (id, axis, size) => get().commit((p) => resizeRoom(p, id, axis, size)),
+    setRoomTool(roomType) {
+      const p = get().project;
+      if (!p) return;
+      useCursor.getState().clear();
+      set({ tool: { kind: "room", preset: defaultWallPreset(p), anchor: null, roomType }, selectedId: null });
+    },
 
     load(project) {
       set({
@@ -178,6 +262,9 @@ export const useEditor = create<EditorState>((set, get) => {
         tool: selectTool,
         dragOrigin: null,
         camera: { preset: "fit", nonce: get().camera.nonce + 1 },
+        activeLevelId: project.levels[0]?.id ?? "terreo",
+        viewMode: "complete",
+        interiorRoomId: null,
       });
     },
 
@@ -346,7 +433,10 @@ export const useEditor = create<EditorState>((set, get) => {
           set({ tool: { kind, preset: defaultWallPreset(project), anchor: null, chainStart: null, typed: "" }, selectedId: null });
           break;
         case "room":
-          set({ tool: { kind, preset: defaultWallPreset(project), anchor: null, withFloor: true }, selectedId: null });
+          set({ tool: { kind, preset: defaultWallPreset(project), anchor: null, roomType: "sala" }, selectedId: null });
+          break;
+        case "roof":
+          set({ tool: { kind, anchor: null, roofType: "hip", pitch: 20 }, selectedId: null });
           break;
         case "floor":
           set({ tool: { kind, preset: { thickness: 0.12, materialId: "concrete" }, anchor: null }, selectedId: null });
@@ -358,13 +448,15 @@ export const useEditor = create<EditorState>((set, get) => {
 
     setToolOptions(patch) {
       const { tool } = get();
-      if (tool.kind === "wall" || tool.kind === "room") {
-        const { withFloor, ...preset } = patch;
+      if (tool.kind === "roof") {
+        set({ tool: { ...tool, ...(patch.roofType ? { roofType: patch.roofType } : {}), ...(patch.pitch !== undefined ? { pitch: patch.pitch } : {}) } });
+      } else if (tool.kind === "wall" || tool.kind === "room") {
+        const { roomType, roofType: _r, pitch: _p, ...preset } = patch;
         set({
           tool: {
             ...tool,
             preset: { ...tool.preset, ...(preset as Partial<WallPreset>) },
-            ...(tool.kind === "room" && withFloor !== undefined ? { withFloor } : {}),
+            ...(tool.kind === "room" && roomType ? { roomType } : {}),
           } as Tool,
         });
       } else if (tool.kind === "floor") {
@@ -458,15 +550,31 @@ export const useEditor = create<EditorState>((set, get) => {
             return;
           }
           const a = tool.anchor;
+          let roomId = "";
           const ok = get().commit((proj) => {
-            const walls = createRoomWalls(proj.elements, a, p, tool.preset);
-            let next = addElements(proj, walls);
-            if (tool.withFloor) {
-              next = addElements(next, [createFloor(next.elements, a, p, { thickness: 0.12, materialId: "porcelain-tile" })]);
-            }
-            return next;
+            const { walls, room } = createRoomWithWalls(proj.elements, a, p, tool.roomType, { ...tool.preset, levelId: get().activeLevelId });
+            roomId = room.id;
+            return addElements(proj, [...walls, room]);
           });
-          if (ok) set({ tool: { ...tool, anchor: null } });
+          if (ok) set({ tool: { ...tool, anchor: null }, selectedId: roomId });
+          return;
+        }
+
+        case "roof": {
+          if (!tool.anchor) {
+            set({ tool: { ...tool, anchor: p } });
+            return;
+          }
+          const a = tool.anchor;
+          const level = project.levels.find((l) => l.id === get().activeLevelId);
+          const wallTop = Math.max(0, ...project.elements.filter((e): e is Wall => isWall(e) && e.levelId === get().activeLevelId).map((w) => w.baseElevation + w.height));
+          let id = "";
+          const ok = get().commit((proj) => {
+            const roof = createRoof(proj.elements, a, p, { levelId: get().activeLevelId, baseHeight: wallTop || (level?.height ?? 3), roofType: tool.roofType, pitch: tool.pitch });
+            id = roof.id;
+            return addElements(proj, [roof]);
+          });
+          if (ok) set({ tool: selectTool, selectedId: id });
           return;
         }
 
@@ -478,7 +586,7 @@ export const useEditor = create<EditorState>((set, get) => {
           const a = tool.anchor;
           let id = "";
           const ok = get().commit((proj) => {
-            const floor = createFloor(proj.elements, a, p, tool.preset);
+            const floor = createFloor(proj.elements, a, p, { ...tool.preset, levelId: get().activeLevelId });
             id = floor.id;
             return addElements(proj, [floor]);
           });
@@ -491,7 +599,7 @@ export const useEditor = create<EditorState>((set, get) => {
           if (!item) return;
           const spec = item.spec;
           if (spec.elementType === "door" || spec.elementType === "window") {
-            const hit = findNearestWall(project.elements.filter(isWall), raw, OPENING_PICK_DISTANCE);
+            const hit = findNearestWall(project.elements.filter((e): e is Wall => isWall(e) && e.levelId === get().activeLevelId), raw, OPENING_PICK_DISTANCE);
             if (!hit) {
               notify("info", `Clique sobre uma parede para inserir: ${item.name}.`);
               return;
@@ -508,7 +616,7 @@ export const useEditor = create<EditorState>((set, get) => {
           if (spec.elementType === "object") {
             let id = "";
             const ok = get().commit((proj) => {
-              const obj = createObject(proj.elements, spec, item.name, p);
+              const obj = createObject(proj.elements, spec, item.name, p, get().activeLevelId);
               id = obj.id;
               return addElements(proj, [obj]);
             });

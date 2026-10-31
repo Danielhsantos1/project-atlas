@@ -11,7 +11,7 @@ import { PersistenceError } from "./errors";
  *   3. adicione testes com um documento real da versão antiga.
  */
 export const FORMAT_ID = "atlas.project";
-export const CURRENT_FORMAT_VERSION = 1;
+export const CURRENT_FORMAT_VERSION = 2;
 
 export const EnvelopeSchema = z.object({
   format: z.literal(FORMAT_ID),
@@ -23,7 +23,30 @@ export type Envelope = z.infer<typeof EnvelopeSchema>;
 
 /** Migração de documento da versão N para N+1 (chave = versão de origem). */
 export type Migration = (project: unknown) => unknown;
-export const MIGRATIONS: Readonly<Record<number, Migration>> = {};
+export const MIGRATIONS: Readonly<Record<number, Migration>> = {
+  /**
+   * v1 → v2: introdução de pavimentos.
+   * Cria o pavimento "Térreo" (cota 0), associa paredes/pisos/objetos a ele e
+   * define o núcleo construtivo das paredes a partir do material de acabamento.
+   * Cotas não mudam (o térreo está na elevação 0).
+   */
+  1: (doc) => {
+    const p = doc as { elements?: Array<Record<string, unknown>>; settings?: { defaultWallHeight?: number } };
+    const height = (p.settings?.defaultWallHeight ?? 2.8) + 0.2;
+    return {
+      ...p,
+      levels: [{ id: "terreo", name: "Térreo", elevation: 0, height }],
+      elements: (p.elements ?? []).map((e) => {
+        if (e.type === "door") return { ...e, style: "swing" };
+        if (e.type === "window") return e;
+        const withLevel = { ...e, levelId: "terreo" };
+        if (e.type !== "wall") return withLevel;
+        const mat = String(e.materialId ?? "");
+        return { ...withLevel, core: mat === "gypsum" ? "drywall" : mat.startsWith("concrete") ? "concrete" : "ceramic-brick" };
+      }),
+    };
+  },
+};
 
 export function toEnvelope(project: Project, now = new Date()): Envelope {
   return { format: FORMAT_ID, version: CURRENT_FORMAT_VERSION, savedAt: now.toISOString(), project };

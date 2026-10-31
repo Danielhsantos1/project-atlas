@@ -84,7 +84,7 @@ export function ToolPreview() {
     );
   }
 
-  if ((tool.kind === "room" || tool.kind === "floor") && tool.anchor) {
+  if ((tool.kind === "room" || tool.kind === "floor" || tool.kind === "roof") && tool.anchor) {
     const z = tool.kind === "room" ? tool.preset.height : 0.02;
     return (
       <>

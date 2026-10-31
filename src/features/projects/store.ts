@@ -24,6 +24,7 @@ interface ProjectsState {
   update(id: string, patch: ProjectPatch): Promise<void>;
   importFile(file: File): Promise<Project | null>;
   exportProject(id: string): Promise<void>;
+  createFrom(project: Project, name?: string): Promise<Project | null>;
 }
 
 /** Estado da biblioteca de projetos (dashboard). Fonte: ProjectService. */
@@ -81,6 +82,8 @@ export const useProjects = create<ProjectsState>((set, get) => {
       if (project) notify("success", `Projeto importado: ${project.name}`);
       return project;
     },
+
+    createFrom: (project, name) => run(() => getProjectService().createFrom(project, name)),
 
     async exportProject(id) {
       await run(async () => {

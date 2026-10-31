@@ -15,6 +15,8 @@ const wall = (over: Partial<Wall> = {}): Wall => ({
   id: "w1",
   type: "wall",
   name: "Parede 1",
+  levelId: "terreo",
+  core: "ceramic-brick",
   start: { x: 0, y: 0 },
   end: { x: 5, y: 0 },
   baseElevation: 0,
@@ -34,6 +36,7 @@ const door = (over: Partial<Door> = {}): Door => ({
   height: 2.1,
   hinge: "left",
   opensTo: "left",
+  style: "swing",
   materialId: "wood-oak",
   ...over,
 });

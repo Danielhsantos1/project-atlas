@@ -14,6 +14,8 @@ import { ToolPanel } from "./panels/ToolPanel";
 import { PropertiesPanel } from "./panels/PropertiesPanel";
 import { StatusBar } from "./panels/StatusBar";
 import { ShortcutsDialog } from "./panels/ShortcutsDialog";
+import { LevelSelector, ViewModeBar } from "./panels/ViewModeBar";
+import { BudgetPanel } from "./budget/BudgetPanel";
 import { useAutosave, saveNow } from "./hooks/useAutosave";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 
@@ -57,7 +59,9 @@ export function EditorPage({ id }: { id: string }) {
 function EditorWorkspace() {
   const view = useEditor((s) => s.view);
   const panels = useEditor((s) => s.panels);
+  const walking = useEditor((s) => s.view === "3d" && s.viewMode === "walkthrough");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [budgetOpen, setBudgetOpen] = useState(false);
   const showShortcuts = useCallback(() => setShortcutsOpen(true), []);
   useAutosave();
   useKeyboardShortcuts(showShortcuts);
@@ -71,12 +75,17 @@ function EditorWorkspace() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-ink-900">
-      <TopBar onSave={() => void saveNow({ manual: true })} onExport={exportJson} onShowShortcuts={showShortcuts} />
-      <div className="flex min-h-0 flex-1">
+      <TopBar onSave={() => void saveNow({ manual: true })} onExport={exportJson} onShowShortcuts={showShortcuts} onBudget={() => setBudgetOpen(true)} />
+      <div className="relative flex min-h-0 flex-1">
+        {budgetOpen && <BudgetPanel onClose={() => setBudgetOpen(false)} />}
         <aside className={cn("panel w-64 shrink-0 border-r transition-[margin] duration-200", !panels.left && "-ml-64")} aria-label="Ferramentas e biblioteca">
           <ToolPanel />
         </aside>
-        <main className="relative min-w-0 flex-1">{view === "3d" ? <Viewport3D /> : <FloorPlan2D />}</main>
+        <main className="relative min-w-0 flex-1">
+          {view === "3d" ? <Viewport3D /> : <FloorPlan2D />}
+          <ViewModeBar />
+          {!walking && <LevelSelector />}
+        </main>
         <aside className={cn("panel w-[300px] shrink-0 border-l transition-[margin] duration-200", !panels.right && "-mr-[300px]")} aria-label="Propriedades">
           <PropertiesPanel />
         </aside>
