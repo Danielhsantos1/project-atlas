@@ -10,7 +10,7 @@ import type { BudgetCategory } from "./categories";
  * (PISO-<material>, PORTA-<l>X<a>-<material>...) são determinísticos — o mesmo
  * modelo sempre gera o mesmo código.
  */
-export const SERVICE_UNITS = ["m", "m²", "m³", "un", "L"] as const;
+export const SERVICE_UNITS = ["m", "m²", "m³", "un", "L", "kg", "sc"] as const;
 export const ServiceUnitSchema = z.enum(SERVICE_UNITS);
 export type ServiceUnit = z.infer<typeof ServiceUnitSchema>;
 
@@ -24,8 +24,68 @@ export interface ServiceDefinition {
 
 const def = (code: string, description: string, unit: ServiceUnit, category: BudgetCategory): ServiceDefinition => ({ code, description, unit, category });
 
+/**
+ * Serviços e insumos do levantamento da CONSTRUÇÃO COMO UM TODO (construction.ts).
+ * Códigos fixos e determinísticos. "sc" = saco (cimento 50 kg, cal 20 kg: ver basis da linha).
+ * Linhas "informativo" (volumes de argamassa/concreto) são memória de cálculo e saem como opcionais.
+ */
+export const CONSTRUCTION_SERVICES = {
+  // Alvenaria
+  "MAT-BLOCO-CERAMICO": def("MAT-BLOCO-CERAMICO", "Bloco cerâmico de vedação (unidades)", "un", "materiais"),
+  "MAT-BLOCO-CONCRETO": def("MAT-BLOCO-CONCRETO", "Bloco de concreto de vedação (unidades)", "un", "materiais"),
+  "ALV-VERGA": def("ALV-VERGA", "Verga de concreto sobre aberturas (comprimento)", "m", "materiais"),
+  "ALV-CONTRAVERGA": def("ALV-CONTRAVERGA", "Contraverga de concreto sob janelas (comprimento)", "m", "materiais"),
+  "MAT-DRYWALL-CHAPA": def("MAT-DRYWALL-CHAPA", "Chapa de gesso acartonado, as duas faces (insumo)", "m²", "materiais"),
+  "MAT-DRYWALL-MONTANTE": def("MAT-DRYWALL-MONTANTE", "Montante de aço para drywall (comprimento)", "m", "materiais"),
+  "MAT-DRYWALL-GUIA": def("MAT-DRYWALL-GUIA", "Guia de aço para drywall (comprimento)", "m", "materiais"),
+  // Argamassas (volumes: memória de cálculo)
+  "ARG-ASSENTAMENTO": def("ARG-ASSENTAMENTO", "Argamassa de assentamento de alvenaria (volume, com perda)", "m³", "materiais"),
+  "ARG-CHAPISCO-INT": def("ARG-CHAPISCO-INT", "Chapisco interno (volume de argamassa, com perda)", "m³", "materiais"),
+  "ARG-CHAPISCO-EXT": def("ARG-CHAPISCO-EXT", "Chapisco externo (volume de argamassa, com perda)", "m³", "materiais"),
+  "ARG-EMBOCO-INT": def("ARG-EMBOCO-INT", "Emboço interno (volume de argamassa, com perda)", "m³", "materiais"),
+  "ARG-EMBOCO-EXT": def("ARG-EMBOCO-EXT", "Emboço externo / massa única (volume de argamassa, com perda)", "m³", "materiais"),
+  "ARG-REBOCO-INT": def("ARG-REBOCO-INT", "Reboco interno (volume de argamassa, com perda)", "m³", "materiais"),
+  "ARG-REBOCO-EXT": def("ARG-REBOCO-EXT", "Reboco externo (volume de argamassa, com perda)", "m³", "materiais"),
+  // Insumos consolidados (cimento, cal, agregados)
+  "MAT-CIMENTO": def("MAT-CIMENTO", "Cimento Portland (sacos)", "sc", "materiais"),
+  "MAT-CAL": def("MAT-CAL", "Cal hidratada (sacos)", "sc", "materiais"),
+  "MAT-AREIA": def("MAT-AREIA", "Areia (volume solto, com inchamento)", "m³", "materiais"),
+  "MAT-BRITA": def("MAT-BRITA", "Brita (volume solto)", "m³", "materiais"),
+  // Estrutura
+  "EST-FUNDACAO": def("EST-FUNDACAO", "Baldrame / fundação CONCEITUAL (volume de concreto)", "m³", "materiais"),
+  "EST-CONCRETO-ENG": def("EST-CONCRETO-ENG", "Concreto estrutural informado pelo engenheiro (volume)", "m³", "materiais"),
+  "EST-CONCRETO-PAREDE": def("EST-CONCRETO-PAREDE", "Concreto das paredes moldadas in loco (volume)", "m³", "materiais"),
+  "EST-CONCRETO-TOTAL": def("EST-CONCRETO-TOTAL", "Concreto estrutural total, com perda (volume)", "m³", "materiais"),
+  "MAT-ACO": def("MAT-ACO", "Aço para concreto armado (massa, sem detalhar bitolas)", "kg", "materiais"),
+  "EST-FORMA": def("EST-FORMA", "Fôrma de concreto (área de contato)", "m²", "materiais"),
+  // Pisos e revestimentos
+  CONTRAPISO: def("CONTRAPISO", "Contrapiso / regularização (volume)", "m³", "acabamentos"),
+  "MAT-ARG-COLANTE": def("MAT-ARG-COLANTE", "Argamassa colante (massa)", "kg", "acabamentos"),
+  "MAT-REJUNTE": def("MAT-REJUNTE", "Rejunte (massa)", "kg", "acabamentos"),
+  "REVEST-CERAMICO-PAREDE": def("REVEST-CERAMICO-PAREDE", "Revestimento cerâmico de parede em áreas molhadas", "m²", "acabamentos"),
+  "ACAB-RODAPE": def("ACAB-RODAPE", "Rodapé (comprimento)", "m", "acabamentos"),
+  "ACAB-SOLEIRA": def("ACAB-SOLEIRA", "Soleira nas portas (comprimento)", "m", "acabamentos"),
+  "ACAB-PEITORIL": def("ACAB-PEITORIL", "Peitoril das janelas (comprimento)", "m", "acabamentos"),
+  // Pintura e acabamentos internos x externos (a tinta de paredes é PINT-TINTA, do takeoff)
+  "PINT-INT-SELADOR": def("PINT-INT-SELADOR", "Selador para paredes internas (insumo)", "L", "acabamentos"),
+  "PINT-INT-MASSA": def("PINT-INT-MASSA", "Massa corrida para paredes internas (insumo)", "kg", "acabamentos"),
+  "PINT-EXT-SELADOR": def("PINT-EXT-SELADOR", "Selador para fachadas (insumo)", "L", "acabamentos"),
+  "PINT-EXT-MASSA": def("PINT-EXT-MASSA", "Massa acrílica para fachadas (insumo)", "kg", "acabamentos"),
+  "PINT-EXT-TEXTURA": def("PINT-EXT-TEXTURA", "Textura acrílica para fachadas (insumo)", "kg", "acabamentos"),
+  "PINT-FORRO": def("PINT-FORRO", "Pintura de forro (aplicação)", "m²", "acabamentos"),
+  "PINT-FORRO-TINTA": def("PINT-FORRO-TINTA", "Tinta para forro (insumo)", "L", "acabamentos"),
+  // Cobertura
+  "MAT-TELHA-CERAMICA": def("MAT-TELHA-CERAMICA", "Telha cerâmica (unidades)", "un", "materiais"),
+  "MAT-TELHA-CUMEEIRA": def("MAT-TELHA-CUMEEIRA", "Telha de cumeeira / espigão (unidades)", "un", "materiais"),
+  "COB-ESPIGAO": def("COB-ESPIGAO", "Espigões do telhado (comprimento)", "m", "materiais"),
+  "COB-CALHA": def("COB-CALHA", "Calha / linha de beiral para coleta (comprimento, sem dimensionar)", "m", "materiais"),
+  "COB-RUFO": def("COB-RUFO", "Rufos de empena e encontros (comprimento, sem dimensionar)", "m", "materiais"),
+  "COB-ESTRUTURA": def("COB-ESTRUTURA", "Estrutura do telhado (a dimensionar)", "m²", "materiais"),
+} as const satisfies Record<string, ServiceDefinition>;
+
 /** Serviços de código fixo. */
 export const STATIC_SERVICES = {
+  ...CONSTRUCTION_SERVICES,
   "ALV-BLOCO-CERAMICO": def("ALV-BLOCO-CERAMICO", "Alvenaria de vedação em bloco cerâmico", "m²", "materiais"),
   "ALV-BLOCO-CONCRETO": def("ALV-BLOCO-CONCRETO", "Alvenaria de vedação em bloco de concreto", "m²", "materiais"),
   "ALV-CONCRETO": def("ALV-CONCRETO", "Parede de concreto moldada in loco", "m²", "materiais"),
@@ -184,6 +244,13 @@ export function normalizeUnit(raw: string): ServiceUnit | null {
     case "lt":
     case "litro":
       return "L";
+    case "kg":
+    case "quilo":
+      return "kg";
+    case "sc":
+    case "saco":
+    case "sacos":
+      return "sc";
     default:
       return null;
   }
