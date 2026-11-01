@@ -53,6 +53,7 @@ export const CONSTRUCTION_SERVICES = {
   "MAT-BRITA": def("MAT-BRITA", "Brita (volume solto)", "m³", "materiais"),
   // Estrutura
   "EST-FUNDACAO": def("EST-FUNDACAO", "Baldrame / fundação CONCEITUAL (volume de concreto)", "m³", "materiais"),
+  "EST-CONCRETO-COBERTURA": def("EST-CONCRETO-COBERTURA", "Laje de cobertura em concreto (volume)", "m³", "materiais"),
   "EST-CONCRETO-ENG": def("EST-CONCRETO-ENG", "Concreto estrutural informado pelo engenheiro (volume)", "m³", "materiais"),
   "EST-CONCRETO-PAREDE": def("EST-CONCRETO-PAREDE", "Concreto das paredes moldadas in loco (volume)", "m³", "materiais"),
   "EST-CONCRETO-TOTAL": def("EST-CONCRETO-TOTAL", "Concreto estrutural total, com perda (volume)", "m³", "materiais"),
@@ -244,13 +245,6 @@ export function normalizeUnit(raw: string): ServiceUnit | null {
     case "lt":
     case "litro":
       return "L";
-    case "kg":
-    case "quilo":
-      return "kg";
-    case "sc":
-    case "saco":
-    case "sacos":
-      return "sc";
     default:
       return null;
   }

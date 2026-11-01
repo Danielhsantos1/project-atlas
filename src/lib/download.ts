@@ -21,3 +21,15 @@ export function safeFileName(name: string): string {
     .toLowerCase();
   return base || "projeto";
 }
+
+/** Dispara o download de um arquivo binário (PDF, etc.) no navegador. */
+export function downloadBytes(filename: string, bytes: Uint8Array, mime: string) {
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}

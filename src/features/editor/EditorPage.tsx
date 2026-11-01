@@ -16,6 +16,7 @@ import { StatusBar } from "./panels/StatusBar";
 import { ShortcutsDialog } from "./panels/ShortcutsDialog";
 import { LevelSelector, ViewModeBar } from "./panels/ViewModeBar";
 import { BudgetPanel } from "./budget/BudgetPanel";
+import { EngineeringPanel } from "./engineering/EngineeringPanel";
 import { useAutosave, saveNow } from "./hooks/useAutosave";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 
@@ -62,6 +63,7 @@ function EditorWorkspace() {
   const walking = useEditor((s) => s.view === "3d" && s.viewMode === "walkthrough");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
+  const [engOpen, setEngOpen] = useState(false);
   const showShortcuts = useCallback(() => setShortcutsOpen(true), []);
   useAutosave();
   useKeyboardShortcuts(showShortcuts);
@@ -75,9 +77,10 @@ function EditorWorkspace() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-ink-900">
-      <TopBar onSave={() => void saveNow({ manual: true })} onExport={exportJson} onShowShortcuts={showShortcuts} onBudget={() => setBudgetOpen(true)} />
+      <TopBar onSave={() => void saveNow({ manual: true })} onExport={exportJson} onShowShortcuts={showShortcuts} onBudget={() => setBudgetOpen(true)} onEngineering={() => setEngOpen(true)} />
       <div className="relative flex min-h-0 flex-1">
         {budgetOpen && <BudgetPanel onClose={() => setBudgetOpen(false)} />}
+        {engOpen && <EngineeringPanel onClose={() => setEngOpen(false)} />}
         <aside className={cn("panel w-64 shrink-0 border-r transition-[margin] duration-200", !panels.left && "-ml-64")} aria-label="Ferramentas e biblioteca">
           <ToolPanel />
         </aside>

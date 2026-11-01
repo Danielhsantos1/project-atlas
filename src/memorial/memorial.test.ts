@@ -34,3 +34,28 @@ describe("memorial de cálculo em PDF", () => {
     expect(generateMemorialPdf(big).pages).toBeGreaterThan(5);
   });
 });
+
+describe("montagem do memorial a partir da engenharia", () => {
+  it("casa demonstrativa: seções completas, pendências quando faltam chuva e solo, PDF válido", async () => {
+    const { buildModernHouse } = await import("@/core/templates/modern-house");
+    const { engineeringSummary } = await import("@/engineering");
+    const { buildMemorial } = await import("./build");
+    const project = buildModernHouse(new Date("2026-10-31T12:00:00Z"));
+    const semDados = buildMemorial({ project, summary: engineeringSummary(project), now: new Date("2026-11-01T12:00:00Z") });
+    expect(semDados.pending.join(" ")).toMatch(/chuva|pluvio/i);
+    expect(semDados.pending.join(" ")).toMatch(/solo|SPT/i);
+    const alerts = semDados.sections.flatMap((s) => s.blocks).filter((b) => b.kind === "alert" && b.level === "pendente");
+    expect(alerts.length).toBeGreaterThanOrEqual(2);
+    expect(semDados.sections.map((s) => s.id)).toEqual(expect.arrayContaining(["identificacao", "cobertura", "agua", "estrutura", "premissas"]));
+
+    const completo = buildMemorial({ project, summary: engineeringSummary(project, { rainIntensityMmH: 150, soilAllowableKPa: 200 }), now: new Date("2026-11-01T12:00:00Z") });
+    expect(completo.pending).toEqual([]);
+    const tables = completo.sections.flatMap((s) => s.blocks).filter((b) => b.kind === "table");
+    expect(tables.some((t) => t.kind === "table" && t.caption === "Sapatas")).toBe(true);
+    const { bytes, pages } = generateMemorialPdf(completo);
+    expect(new TextDecoder("latin1").decode(bytes.slice(0, 5))).toBe("%PDF-");
+    expect(pages).toBeGreaterThan(3);
+    // O hash do modelo identifica a versão exata.
+    expect(completo.meta.revisionHash).toMatch(/^[0-9a-f]{16,}$/);
+  });
+});

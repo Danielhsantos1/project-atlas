@@ -217,9 +217,9 @@ function planBlocks(project: Project, levelId: string, schedule: ReturnType<type
     "QUADRO DE AREAS",
     "QUADRO DE ÁREAS",
     [
-      { header: "Ambiente", widthMm: 56 },
+      { header: "Ambiente", widthMm: 52 },
       { header: "Pavimento", widthMm: 38 },
-      { header: "Área útil (m²)", widthMm: 26, align: "right" },
+      { header: "Área útil (m²)", widthMm: 30, align: "right" },
     ],
     rows.map((r) => [r.name, r.levelName, fmtNum(r.area)]),
     [

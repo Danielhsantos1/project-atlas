@@ -989,6 +989,8 @@ export function constructionTakeoff(project: Project, paramsInput: ConstructionP
   const st = p.structure;
   const ov = p.structuralOverride;
   const tSlab = T();
+  const tRoofSlab = T();
+  let vRoofSlab = 0;
   const tCol = T();
   const tBeam = T();
   const tFound = T();
@@ -1007,6 +1009,14 @@ export function constructionTakeoff(project: Project, paramsInput: ConstructionP
       vSlab += v;
       fSlab += floorArea(e) + 2 * (e.width + e.depth) * e.thickness;
       tSlab.add(v, e, e.levelId);
+    } else if (e.type === "roof" && e.materialId.startsWith("concrete")) {
+      // Cobertura de concreto = laje: volume = projeção com beirais × espessura (COB-<material> m² segue no takeoff).
+      const g = roofGeometry(e);
+      const v = g.footprint * e.thickness;
+      vSlab += v;
+      vRoofSlab += v;
+      fSlab += g.footprint + 2 * (e.width + e.depth + 4 * e.overhang) * e.thickness;
+      tRoofSlab.add(v, e, e.levelId);
     } else if (e.type === "object" && e.materialId.startsWith("concrete")) {
       if (e.kind === "column-rect") {
         const v = e.length * e.width * e.height;
@@ -1069,7 +1079,10 @@ export function constructionTakeoff(project: Project, paramsInput: ConstructionP
       );
       warnings.push("Baldrame/fundação CONCEITUAL (perímetro dos eixos × seção padrão): não é dimensionamento; substitua pelos volumes do engenheiro (structuralOverride).");
     }
-    addUse("lajes", "concrete", "concreto", vSlab, cl, tSlab);
+    if (tRoofSlab.any) {
+      push(S["EST-CONCRETO-COBERTURA"], vRoofSlab, tRoofSlab, `Σ projeção horizontal da cobertura com beirais × espessura (${tRoofSlab.text("m³")}); cobertura de concreto tratada como laje (m² em COB-*, takeoff).`, "servico");
+    }
+    addUse("lajes", "concrete", "concreto", vSlab, cl, merge(tSlab, tRoofSlab));
     addUse("pilares", "concrete", "concreto", vCol, cl, tCol);
     addUse("vigas", "concrete", "concreto", vBeam, cl, tBeam);
     addUse("baldrame/fundação conceitual", "concrete", "concreto", vFound, cl, tFound);
@@ -1195,8 +1208,10 @@ export function constructionTakeoff(project: Project, paramsInput: ConstructionP
       case "flat":
         break;
     }
-    if (!cover) unknownCover.add(r.materialId);
-    else if (cover.kind === "telha") {
+    const slabRoof = r.materialId.startsWith("concrete");
+    if (!cover) {
+      if (!slabRoof) unknownCover.add(r.materialId);
+    } else if (cover.kind === "telha") {
       if (r.roofType === "flat") flatTile.push(r.name);
       else {
         tilesRaw += g.area * cover.unitsPerM2;
@@ -1218,7 +1233,7 @@ export function constructionTakeoff(project: Project, paramsInput: ConstructionP
       flashLen += rakes;
       tFlash.add(rakes, r, r.levelId);
     }
-    if (r.roofType !== "flat") {
+    if (r.roofType !== "flat" && !slabRoof) {
       structArea += g.area;
       tStruct.add(g.area, r, r.levelId);
     }
@@ -1239,7 +1254,7 @@ export function constructionTakeoff(project: Project, paramsInput: ConstructionP
   }
 
   // ---------------- Avisos gerais ----------------
-  warnings.push("Instalações elétricas, hidráulicas e de gás não modeladas: orçar à parte.");
+  warnings.push("Instalações elétricas, hidráulicas e de gás não modeladas: orçar à parte");
 
   return { lines, warnings };
 }
