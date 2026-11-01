@@ -6,6 +6,7 @@
 export * from "./categories";
 export * from "./services";
 export * from "./quantities";
+export * from "./construction";
 export * from "./prices";
 export * from "./budget";
 export * from "./version";
