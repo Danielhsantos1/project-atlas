@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "node scripts/e2e-acceptance.cjs",
-    "e2e:m3": "node scripts/e2e-missao-003-004.cjs"
+    "e2e:m3": "node scripts/e2e-missao-003-004.cjs",
+    "demo": "node scripts/demo-package.cjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

@@ -86,3 +86,32 @@ cilindros em coordenadas locais; o 3D desenha volumes e a planta desenha as proj
 
 Os quantitativos e geometrias são indicativos. Nada nesta versão substitui cálculo, dimensionamento ou
 verificação normativa por profissional habilitado.
+
+---
+
+# Missões 003 e 004 — decisões adicionais
+
+### ADR-011 — Ambientes derivados das paredes
+`Room` guarda só um ponto-semente; o contorno vem do grafo planar dos eixos das paredes (`core/geometry/rooms.ts`, faces mínimas).
+Mover/alterar uma parede atualiza todos os ambientes vizinhos sem duplicar geometria. Ambiente sem contorno fechado é sinalizado, nunca calculado.
+
+### ADR-012 — Pavimentos
+`levels[]` com cota absoluta; elementos guardam `levelId` e cotas RELATIVAS ao pavimento. Aberturas herdam o pavimento da parede. Formato v2 (migração v1→v2 cria o "Térreo").
+
+### ADR-013 — Cômodos encostados
+`createRoomWithWalls` só cria os trechos de parede ainda não cobertos (`uncoveredSegments`); movimentos perpendiculares levam a cadeia colinear (`collinearChain`).
+
+### ADR-014 — Modos de visualização = filtros sobre o mesmo modelo
+`SceneFilter` (pavimentos, telhado, forro, etapa, ambiente) + planos de corte globais do renderizador + câmera ortográfica para fachadas. Nenhuma cópia do modelo.
+
+### ADR-015 — Física separada da geometria visual
+`src/walkthrough` é TypeScript puro e testável: colisão por caixas orientadas + spatial hash; controlador de cilindro com degraus e varredura contra lajes. Estado de visita (portas abertas) fica fora do documento.
+
+### ADR-016 — Orçamento ligado à versão
+`projectRevisionHash` vincula orçamentos/propostas à revisão; preços ausentes nunca viram zero; exemplos são sempre sinalizados (ADR de integridade comercial).
+
+### ADR-017 — IA atrás de interface
+`AiProvider` isola o interpretador (hoje regras locais). O gerador produz um `Project` comum (editável) e o verificador mede consistência geométrica — a IA não "aprova" projetos.
+
+### ADR-018 — SaaS como regras puras
+`src/saas` define papéis, permissões, isolamento por organização e limites de plano sem backend. **Devem ser reaplicadas no servidor** quando existir.

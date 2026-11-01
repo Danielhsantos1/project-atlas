@@ -75,9 +75,13 @@ export default function FloorPlan2D() {
   }, []);
 
   const fit = useCallback(() => {
-    const p = useEditor.getState().project;
+    const st = useEditor.getState();
+    const p = st.project;
     if (!p || size.w === 0) return;
-    const b = projectBounds(p);
+    // Enquadra o pavimento ativo; gramados e calçadas que cobrem o terreno todo não contam.
+    const onLevel = p.elements.filter((e) => "levelId" in e && e.levelId === st.activeLevelId && !(e.type === "floor" && (e.materialId === "grass" || e.materialId === "paving-stone")));
+    const upper = p.levels.some((l) => l.elevation > (p.levels.find((x) => x.id === st.activeLevelId)?.elevation ?? 0) - 1e-9 && l.id !== p.levels[0]?.id);
+    const b = projectBounds({ elements: upper || onLevel.length > 0 ? onLevel : p.elements });
     const min = b ? b.min : { x: 0, y: 0 };
     const max = b ? b.max : { x: p.site.width, y: p.site.depth };
     const bw = Math.max(max.x - min.x, 1);
@@ -89,10 +93,11 @@ export default function FloorPlan2D() {
     });
   }, [size.w, size.h]);
 
-  // Enquadra ao abrir e ao pedir "enquadrar" (tecla F).
+  // Enquadra ao abrir, ao pedir "enquadrar" (tecla F) e ao trocar de pavimento.
+  const levelForFit = useEditor((s) => s.activeLevelId);
   useEffect(() => {
     fit();
-  }, [fit, camera.nonce]);
+  }, [fit, camera.nonce, levelForFit]);
 
   const toDomain = useCallback(
     (clientX: number, clientY: number): Vec2 | null => {

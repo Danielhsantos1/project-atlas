@@ -3,6 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Calculator, Camera, Database, FileText, Ruler, Trash2, Upload, X } from "lucide-react";
 import { createId } from "@/core/model/ids";
+import type { Room } from "@/core/model/schema";
+import { ROOM_TYPE_INFO } from "@/core/model/factory";
+import { getMaterial } from "@/core/model/materials";
+import { roomShape } from "@/core/geometry/rooms";
+import { levelWalls } from "@/core/model/operations";
 import { formatArea, formatLength } from "@/core/units/units";
 import {
   BUDGET_CATEGORIES, BUDGET_CATEGORY_LABEL, BudgetRepository, DEFAULT_TAKEOFF_PARAMS, EXAMPLE_PRICE_ITEMS, PRICE_SOURCE_KIND_LABEL, PRICE_STATUS_LABEL,
@@ -127,6 +132,7 @@ function QuantitiesTab({ budget, params, setParams }: { budget: Budget; params: 
         <label className="flex items-center gap-2">Demãos de tinta <input className={cn(inp, "w-14")} type="number" min={1} max={5} value={params.paintCoats} onChange={(e) => setParams({ ...params, paintCoats: Number(e.target.value) })} /></label>
         <label className="flex items-center gap-2">Rendimento (m²/L/demão) <input className={cn(inp, "w-16")} type="number" min={1} max={30} value={params.paintYieldM2PerLiterPerCoat} onChange={(e) => setParams({ ...params, paintYieldM2PerLiterPerCoat: Number(e.target.value) })} /></label>
       </div>
+      <RoomList project={project} />
       <section>
         <h3 className="mb-2 text-[13px] font-semibold">Materiais e serviços levantados do modelo ({tk.lines.length})</h3>
         <table className="w-full text-[12px]" data-testid="takeoff-table">
@@ -150,6 +156,45 @@ function QuantitiesTab({ budget, params, setParams }: { budget: Budget; params: 
         <CategoryTotals budget={budget} />
       </section>
     </div>
+  );
+}
+
+/** Lista de ambientes: área útil, perímetro, aberturas e pé-direito, calculados das paredes. */
+function RoomList({ project }: { project: ReturnType<typeof useEditor.getState>["project"] & object }) {
+  const rows = useMemo(() => {
+    return project.elements
+      .filter((e): e is Room => e.type === "room")
+      .map((r) => {
+        const shape = roomShape(levelWalls(project, r.levelId), r.seed);
+        const level = project.levels.find((l) => l.id === r.levelId);
+        const doors = shape ? project.elements.filter((e) => e.type === "door" && shape.wallIds.includes(e.hostId)).length : 0;
+        const windows = shape ? project.elements.filter((e) => e.type === "window" && shape.wallIds.includes(e.hostId)).length : 0;
+        return { r, shape, level, doors, windows };
+      })
+      .sort((a, b) => (a.level?.elevation ?? 0) - (b.level?.elevation ?? 0));
+  }, [project]);
+  const unit = project.settings.displayUnit;
+  return (
+    <section>
+      <h3 className="mb-2 text-[13px] font-semibold">Lista de ambientes ({rows.length})</h3>
+      <table className="w-full text-[12px]" data-testid="room-list">
+        <thead className="text-left text-fg-subtle"><tr><th className="py-1.5">Ambiente</th><th>Tipo</th><th>Pavimento</th><th className="text-right">Área útil</th><th className="text-right">Perímetro</th><th className="text-right">Portas</th><th className="text-right">Janelas</th><th className="pl-4">Piso</th></tr></thead>
+        <tbody>
+          {rows.map(({ r, shape, level, doors, windows }) => (
+            <tr key={r.id} className="border-t border-ink-750">
+              <td className="py-1.5">{r.name}</td>
+              <td className="text-fg-muted">{ROOM_TYPE_INFO[r.roomType].label}</td>
+              <td className="text-fg-muted">{level?.name}</td>
+              <td className="text-right font-mono">{shape ? formatArea(shape.area) : <span className="text-warning">aberto</span>}</td>
+              <td className="text-right font-mono">{shape ? formatLength(shape.perimeter, unit) : "—"}</td>
+              <td className="text-right font-mono">{doors}</td>
+              <td className="text-right font-mono">{windows}</td>
+              <td className="pl-4 text-fg-muted">{getMaterial(r.materialId).name}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 
