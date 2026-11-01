@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { useEditor } from "../store";
 import { useCursor } from "../cursor";
 
-const TOOL_LABEL = { select: "Selecionar", wall: "Parede", room: "Cômodo", floor: "Piso", roof: "Telhado", place: "Inserir" } as const;
+const TOOL_LABEL = { select: "Selecionar", wall: "Parede", room: "Cômodo", floor: "Piso", roof: "Telhado", garage: "Garagem", place: "Inserir" } as const;
 
 export function StatusBar() {
   const project = useEditor((s) => s.project);

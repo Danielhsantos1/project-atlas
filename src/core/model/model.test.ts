@@ -219,3 +219,21 @@ describe("quantitativos", () => {
     expect(s.totalFloorArea).toBeCloseTo(20);
   });
 });
+
+describe("pé-direito", () => {
+  it("altera paredes, forros e desloca pavimentos superiores", async () => {
+    const { buildModernHouse } = await import("../templates/modern-house");
+    const { setLevelCeilingHeight } = await import("./operations");
+    const p = buildModernHouse();
+    const q = setLevelCeilingHeight(p, "terreo", 3.4);
+    const t = q.levels.find((l) => l.id === "terreo")!;
+    const up = q.levels.find((l) => l.id !== "terreo")!;
+    expect(t.height).toBeCloseTo(3.6, 9);
+    expect(up.elevation).toBeCloseTo(3.6, 9);
+    const walls = q.elements.filter((e): e is Wall => e.type === "wall" && e.levelId === "terreo");
+    expect(walls.filter((w) => w.height === 3.4).length).toBeGreaterThan(10);
+    expect(walls.some((w) => w.height === 2.0)).toBe(true); // muro de divisa preservado
+    expect(() => setLevelCeilingHeight(p, "terreo", 1.5)).toThrow(/entre 2,00/);
+    expect(() => setLevelCeilingHeight(p, "x", 3)).toThrow(/não encontrado/);
+  });
+});

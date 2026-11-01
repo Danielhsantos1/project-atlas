@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
-  AlertCircle, Box, Calculator, Check, ChevronLeft, Cloud, Download, Focus, Keyboard, Loader2, Map as MapIcon, PanelLeft, PanelRight, Redo2, Save, Undo2,
+  AlertCircle, Box, Calculator, Check, HardHat, ChevronLeft, Cloud, Download, Focus, Keyboard, Loader2, Map as MapIcon, PanelLeft, PanelRight, Redo2, Save, Undo2,
 } from "lucide-react";
 import { categoryLabel } from "@/core/model/categories";
 import { IconButton } from "@/ui/Button";
@@ -12,7 +12,7 @@ import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/time";
 import { useEditor, type CameraPreset } from "../store";
 
-export function TopBar({ onSave, onExport, onShowShortcuts, onBudget }: { onSave(): void; onExport(): void; onShowShortcuts(): void; onBudget(): void }) {
+export function TopBar({ onSave, onExport, onShowShortcuts, onBudget, onEngineering }: { onSave(): void; onExport(): void; onShowShortcuts(): void; onBudget(): void; onEngineering(): void }) {
   const project = useEditor((s) => s.project);
   const canUndo = useEditor((s) => s.past.length > 0);
   const canRedo = useEditor((s) => s.future.length > 0);
@@ -40,6 +40,9 @@ export function TopBar({ onSave, onExport, onShowShortcuts, onBudget }: { onSave
       </div>
       <button onClick={onBudget} data-testid="open-budget" className="ml-2 flex items-center gap-1.5 rounded-md border border-accent-line bg-accent-soft px-2.5 py-1 text-[12px] font-medium text-fg hover:bg-accent/20">
         <Calculator size={14} className="text-accent" /> Orçamento
+      </button>
+      <button onClick={onEngineering} data-testid="open-engineering" className="flex items-center gap-1.5 rounded-md border border-ink-600 bg-ink-800 px-2.5 py-1 text-[12px] font-medium text-fg hover:bg-ink-700">
+        <HardHat size={14} className="text-accent" /> Engenharia
       </button>
 
       <div className="mx-auto" />

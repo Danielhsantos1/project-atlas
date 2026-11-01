@@ -6,6 +6,7 @@ import type { BuildingObject, Floor, Opening, Roof, Room, Wall } from "@/core/mo
 import { roomShape, type RoomShape } from "@/core/geometry/rooms";
 import { rectCorners } from "@/core/geometry/shapes";
 import { ROOM_TYPE_INFO } from "@/core/model/factory";
+import { planGarage } from "@/core/planning/garage";
 import { isWall } from "@/core/model/schema";
 import { getLibraryItem } from "@/core/library/catalog";
 import {
@@ -603,6 +604,23 @@ function PlanToolPreview({ s, unit }: { s: number; unit: LengthUnit }) {
         {marker}
         <Txt at={{ x: (a.x + point.x) / 2, y: (a.y + point.y) / 2 }} s={s} fill={ACCENT} weight={600}>
           {formatLength(Math.abs(point.x - a.x), unit)} × {formatLength(Math.abs(point.y - a.y), unit)}
+        </Txt>
+      </g>
+    );
+  }
+  if (tool.kind === "garage") {
+    let plan: ReturnType<typeof planGarage> | null = null;
+    try { plan = planGarage(tool.cars, tool.layout); } catch { plan = null; }
+    if (!plan) return marker;
+    return (
+      <g pointerEvents="none">
+        <rect x={point.x} y={point.y} width={plan.width} height={plan.depth} fill="rgb(47 128 255 / 0.1)" stroke={ACCENT} strokeWidth={1.5} strokeDasharray="6 4" />
+        {plan.bays.map((b, i) => (
+          <rect key={i} x={point.x + b.x - 0.9} y={point.y + b.y - 2.25} width={1.8} height={4.5} fill="none" stroke={ACCENT} strokeWidth={1} />
+        ))}
+        {marker}
+        <Txt at={{ x: point.x + plan.width / 2, y: point.y + plan.depth + 14 / s }} s={s} fill={ACCENT} weight={600}>
+          {formatLength(plan.width, unit)} × {formatLength(plan.depth, unit)} · {plan.cars} carro(s)
         </Txt>
       </g>
     );

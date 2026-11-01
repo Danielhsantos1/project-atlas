@@ -171,3 +171,61 @@ describe("editor — fluxo de modelagem", () => {
     expect(useCursor.getState()).toMatchObject({ point: { x: 1.2, y: 2.3 }, snap: "grid" });
   });
 });
+
+describe("editor — engenharia de obra (garagem, tamanho livre, pé-direito)", () => {
+  it("ferramenta Garagem cria cômodo dimensionado, vagas com carros e portão", () => {
+    S().setGarageTool(2, "lado-a-lado");
+    S().pointerClick({ x: 3, y: 8 });
+    const els = S().project!.elements;
+    const room = els.find((e) => e.type === "room")!;
+    expect(room.name).toBe("Garagem (2 carros)");
+    expect(els.filter((e) => e.type === "object" && e.kind === "car")).toHaveLength(2);
+    expect(walls()).toHaveLength(4);
+    const gates = els.filter((e): e is Door => e.type === "door");
+    expect(gates).toHaveLength(1);
+    expect(gates[0]!.width).toBe(5);
+    // Dimensões: 5,6 × 5,6 m pelos eixos.
+    const xs = walls().flatMap((w) => [w.start.x, w.end.x]);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(5.6, 9);
+    expect(S().tool.kind).toBe("select");
+  });
+
+  it("3 carros usam dois portões; 1 carro, um", () => {
+    S().setGarageTool(3, "lado-a-lado");
+    S().pointerClick({ x: 0, y: 0 });
+    expect(S().project!.elements.filter((e) => e.type === "door")).toHaveLength(2);
+  });
+
+  it("porta e janela com tamanho livre", () => {
+    S().setTool("room");
+    S().pointerClick({ x: 0, y: 0 });
+    S().pointerClick({ x: 5, y: 4 });
+    S().select(null);
+    S().activateLibraryItem("window-120x120");
+    S().setPlaceSize({ width: 2.0, height: 1.0, sillHeight: 0.9 });
+    S().pointerClick({ x: 2.5, y: -0.2 });
+    const win = S().project!.elements.find((e): e is Window => e.type === "window")!;
+    expect(win).toMatchObject({ width: 2, height: 1, sillHeight: 0.9 });
+    S().activateLibraryItem("door-80");
+    S().setPlaceSize({ width: 1.1, height: 2.2 });
+    S().pointerClick({ x: 5.2, y: 2 });
+    const door = S().project!.elements.find((e): e is Door => e.type === "door")!;
+    expect(door).toMatchObject({ width: 1.1, height: 2.2 });
+    // Medida que não cabe é recusada sem alterar o modelo.
+    S().activateLibraryItem("door-80");
+    S().setPlaceSize({ width: 9, height: 2.2 });
+    const before = S().project;
+    S().pointerClick({ x: 2.5, y: 4.1 });
+    expect(S().project).toBe(before);
+  });
+
+  it("pé-direito do pavimento", () => {
+    S().setTool("room");
+    S().pointerClick({ x: 0, y: 0 });
+    S().pointerClick({ x: 5, y: 4 });
+    expect(S().setCeilingHeight("terreo", 3.5)).toBe(true);
+    expect(walls().every((w) => w.height === 3.5)).toBe(true);
+    expect(S().project!.levels[0]!.height).toBeCloseTo(3.7, 9);
+    expect(S().setCeilingHeight("terreo", 1)).toBe(false);
+  });
+});
