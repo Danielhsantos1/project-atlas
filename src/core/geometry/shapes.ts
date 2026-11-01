@@ -28,23 +28,32 @@ export interface Bounds {
 }
 
 /** Caixa envolvente do modelo no plano (para enquadrar a câmera). Null se vazio. */
-export function projectBounds(project: Pick<Project, "elements">): Bounds | null {
+export function projectBounds(project: Pick<Project, "elements"> & { levels?: Project["levels"] }): Bounds | null {
   const pts: Vec2[] = [];
   let maxZ = 0;
+  const elev = new Map((project.levels ?? []).map((l) => [l.id, l.elevation]));
   for (const e of project.elements) {
+    const base = "levelId" in e ? (elev.get(e.levelId) ?? 0) : 0;
     switch (e.type) {
       case "wall":
         pts.push(e.start, e.end);
-        maxZ = Math.max(maxZ, e.baseElevation + e.height);
+        maxZ = Math.max(maxZ, base + e.baseElevation + e.height);
         break;
       case "floor":
         pts.push(...floorCorners(e));
-        maxZ = Math.max(maxZ, e.position.z);
+        maxZ = Math.max(maxZ, base + e.position.z);
         break;
       case "object":
         pts.push(...objectCorners(e));
-        maxZ = Math.max(maxZ, e.position.z + e.height);
+        maxZ = Math.max(maxZ, base + e.position.z + e.height);
         break;
+      case "roof": {
+        const hw = e.width / 2 + e.overhang;
+        const hd = e.depth / 2 + e.overhang;
+        pts.push({ x: e.position.x - hw, y: e.position.y - hd }, { x: e.position.x + hw, y: e.position.y + hd });
+        maxZ = Math.max(maxZ, base + e.baseHeight + 3);
+        break;
+      }
       default:
         break; // aberturas estão contidas nas paredes
     }

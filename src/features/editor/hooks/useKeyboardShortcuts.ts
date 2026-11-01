@@ -23,6 +23,8 @@ export function useKeyboardShortcuts(onShowShortcuts: () => void) {
         return;
       }
       if (isTyping(e.target) || document.querySelector("[role=dialog]")) return;
+      // No passeio 3D, o teclado pertence ao controlador em primeira pessoa.
+      if (s.viewMode === "walkthrough") return;
 
       // Entrada numérica do comprimento da parede tem prioridade.
       if (!mod && s.typeLength(e.key)) {
@@ -59,6 +61,7 @@ export function useKeyboardShortcuts(onShowShortcuts: () => void) {
             case "w": s.setTool("wall"); break;
             case "a": s.setTool("room"); break;
             case "p": s.setTool("floor"); break;
+            case "h": s.setTool("roof"); break;
             case "d": s.activateLibraryItem(DEFAULT_DOOR); break;
             case "j": s.activateLibraryItem(DEFAULT_WINDOW); break;
             case "r": s.rotateSelected(e.shiftKey ? -90 : 90); break;

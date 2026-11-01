@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Maximize, Ruler } from "lucide-react";
-import type { BuildingObject, Floor, Opening, Wall } from "@/core/model/schema";
+import type { BuildingObject, Floor, Opening, Roof, Room, Wall } from "@/core/model/schema";
+import { roomShape, type RoomShape } from "@/core/geometry/rooms";
+import { rectCorners } from "@/core/geometry/shapes";
+import { ROOM_TYPE_INFO } from "@/core/model/factory";
 import { isWall } from "@/core/model/schema";
 import { getLibraryItem } from "@/core/library/catalog";
 import {
@@ -57,6 +60,7 @@ export default function FloorPlan2D() {
   const gesture = useRef<
     | { kind: "pan"; startX: number; startY: number; view: View }
     | { kind: "drag"; id: string; start: Vec2; moved: boolean }
+    | { kind: "create"; startX: number; startY: number }
     | null
   >(null);
 
@@ -71,9 +75,13 @@ export default function FloorPlan2D() {
   }, []);
 
   const fit = useCallback(() => {
-    const p = useEditor.getState().project;
+    const st = useEditor.getState();
+    const p = st.project;
     if (!p || size.w === 0) return;
-    const b = projectBounds(p);
+    // Enquadra o pavimento ativo; gramados e calçadas que cobrem o terreno todo não contam.
+    const onLevel = p.elements.filter((e) => "levelId" in e && e.levelId === st.activeLevelId && !(e.type === "floor" && (e.materialId === "grass" || e.materialId === "paving-stone")));
+    const upper = p.levels.some((l) => l.elevation > (p.levels.find((x) => x.id === st.activeLevelId)?.elevation ?? 0) - 1e-9 && l.id !== p.levels[0]?.id);
+    const b = projectBounds({ elements: upper || onLevel.length > 0 ? onLevel : p.elements });
     const min = b ? b.min : { x: 0, y: 0 };
     const max = b ? b.max : { x: p.site.width, y: p.site.depth };
     const bw = Math.max(max.x - min.x, 1);
@@ -85,10 +93,11 @@ export default function FloorPlan2D() {
     });
   }, [size.w, size.h]);
 
-  // Enquadra ao abrir e ao pedir "enquadrar" (tecla F).
+  // Enquadra ao abrir, ao pedir "enquadrar" (tecla F) e ao trocar de pavimento.
+  const levelForFit = useEditor((s) => s.activeLevelId);
   useEffect(() => {
     fit();
-  }, [fit, camera.nonce]);
+  }, [fit, camera.nonce, levelForFit]);
 
   const toDomain = useCallback(
     (clientX: number, clientY: number): Vec2 | null => {
@@ -136,12 +145,23 @@ export default function FloorPlan2D() {
     if (e.button !== 0) return;
     if (s.tool.kind === "select") {
       const id = hitId(e.target)!;
+      const target = s.project?.elements.find((el) => el.id === id);
+      if (target?.type === "room") {
+        // Ambientes não se arrastam (são definidos pelas paredes): só seleciona.
+        s.select(id);
+        return;
+      }
       s.select(id);
       s.beginDrag();
       gesture.current = { kind: "drag", id, start: p, moved: false };
       e.currentTarget.setPointerCapture(e.pointerId);
     } else {
+      const rectTool = (s.tool.kind === "room" || s.tool.kind === "floor" || s.tool.kind === "roof") && !s.tool.anchor;
       s.pointerClick(p, { shift: e.shiftKey });
+      if (rectTool) {
+        gesture.current = { kind: "create", startX: e.clientX, startY: e.clientY };
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }
     }
   }
 
@@ -169,24 +189,41 @@ export default function FloorPlan2D() {
     }
   }
 
-  function onPointerUp() {
-    if (gesture.current?.kind === "drag") useEditor.getState().endDrag();
+  function onPointerUp(e: React.PointerEvent<SVGSVGElement>) {
+    const g = gesture.current;
+    if (g?.kind === "drag") useEditor.getState().endDrag();
+    // Arrastar para criar: soltar o botão define o segundo canto.
+    if (g?.kind === "create" && Math.hypot(e.clientX - g.startX, e.clientY - g.startY) > 12) {
+      const p = toDomain(e.clientX, e.clientY);
+      if (p) useEditor.getState().pointerClick(p, { shift: e.shiftKey });
+    }
     gesture.current = null;
   }
 
+  const activeLevelId = useEditor((s) => s.activeLevelId);
   const model = useMemo(() => {
     const els = project?.elements ?? [];
-    const walls = els.filter(isWall);
-    const openings = els.filter((e): e is Opening => e.type === "door" || e.type === "window");
+    const levels = project?.levels ?? [];
+    const walls = els.filter((e): e is Wall => isWall(e) && e.levelId === activeLevelId);
+    const wallIds = new Set(walls.map((w) => w.id));
+    const openings = els.filter((e): e is Opening => (e.type === "door" || e.type === "window") && wallIds.has(e.hostId));
+    // Pavimento imediatamente abaixo, desenhado como referência (fantasma).
+    const active = levels.find((l) => l.id === activeLevelId);
+    const below = levels.filter((l) => active && l.elevation < active.elevation).at(-1);
     return {
       walls,
       openings,
       joins: computeWallJoins(walls),
-      floors: els.filter((e): e is Floor => e.type === "floor"),
-      objects: els.filter((e): e is BuildingObject => e.type === "object"),
+      floors: els.filter((e): e is Floor => e.type === "floor" && e.levelId === activeLevelId),
+      objects: els.filter((e): e is BuildingObject => e.type === "object" && e.levelId === activeLevelId),
+      rooms: els
+        .filter((e): e is Room => e.type === "room" && e.levelId === activeLevelId)
+        .map((room) => ({ room, shape: roomShape(walls, room.seed) })),
+      roofs: els.filter((e): e is Roof => e.type === "roof" && e.levelId === activeLevelId),
+      ghostWalls: below ? els.filter((e): e is Wall => isWall(e) && e.levelId === below.id) : [],
       wallById: new Map(walls.map((w) => [w.id, w])),
     };
-  }, [project?.elements]);
+  }, [project?.elements, project?.levels, activeLevelId]);
 
   if (!project) return null;
   const unit = project.settings.displayUnit;
@@ -221,8 +258,14 @@ export default function FloorPlan2D() {
             <PlanGrid view={v} size={size} gridSize={project.settings.gridSize} />
             <rect x={0} y={0} width={project.site.width} height={project.site.depth} fill="none" stroke="#5a6b85" strokeWidth={1} strokeDasharray="6 4" />
 
+            {model.ghostWalls.map((w) => (
+              <line key={`g${w.id}`} x1={w.start.x} y1={w.start.y} x2={w.end.x} y2={w.end.y} stroke="#3a4555" strokeWidth={2} strokeDasharray="4 4" pointerEvents="none" />
+            ))}
             {model.floors.map((f) => (
               <FloorShape key={f.id} floor={f} state={stateOf(f.id, selectedId, hoveredId)} s={v.s} />
+            ))}
+            {model.rooms.map(({ room, shape }) => (
+              <RoomShapeView key={room.id} room={room} shape={shape} state={stateOf(room.id, selectedId, hoveredId)} s={v.s} />
             ))}
             {model.objects.map((o) => (
               <ObjectShape key={o.id} obj={o} state={stateOf(o.id, selectedId, hoveredId)} s={v.s} />
@@ -234,6 +277,9 @@ export default function FloorPlan2D() {
               const host = model.wallById.get(o.hostId);
               return host ? <OpeningShape key={o.id} opening={o} wall={host} state={stateOf(o.id, selectedId, hoveredId)} /> : null;
             })}
+            {model.roofs.map((r) => (
+              <RoofOutline key={r.id} roof={r} state={stateOf(r.id, selectedId, hoveredId)} />
+            ))}
             {showDims && model.walls.map((w) => <WallDimension key={w.id} wall={w} s={v.s} unit={unit} />)}
             {chainWall && <OpeningChain wall={chainWall} openings={model.openings} s={v.s} unit={unit} />}
             <PlanToolPreview s={v.s} unit={unit} />
@@ -241,7 +287,7 @@ export default function FloorPlan2D() {
         )}
       </svg>
 
-      <div className="pointer-events-none absolute top-3 left-3 flex items-center gap-2">
+      <div className="pointer-events-none absolute bottom-14 left-3 flex items-center gap-2">
         <span className="rounded-md border border-ink-700 bg-ink-850/90 px-2 py-1 text-[11.5px] text-fg-muted backdrop-blur">
           Planta baixa · corte a {formatLength(CUT_HEIGHT, unit)}
         </span>
@@ -343,6 +389,49 @@ function ObjectShape({ obj, state, s }: { obj: BuildingObject; state: ShapeState
   );
 }
 
+function centroid(poly: Vec2[]): Vec2 {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!;
+    const q = poly[(i + 1) % poly.length]!;
+    const k = p.x * q.y - q.x * p.y;
+    a += k;
+    cx += (p.x + q.x) * k;
+    cy += (p.y + q.y) * k;
+  }
+  return Math.abs(a) < 1e-9 ? poly[0]! : { x: cx / (3 * a), y: cy / (3 * a) };
+}
+
+function RoomShapeView({ room, shape, state, s }: { room: Room; shape: RoomShape | null; state: ShapeState; s: number }) {
+  const color = ROOM_TYPE_INFO[room.roomType].color;
+  if (!shape) {
+    return (
+      <g data-el={room.id}>
+        <circle cx={room.seed.x} cy={room.seed.y} r={8 / s} fill="#f5b544" />
+        <Txt at={{ x: room.seed.x, y: room.seed.y - 18 / s }} s={s} size={10.5} fill="#f5b544">{room.name} (aberto)</Txt>
+      </g>
+    );
+  }
+  const c = centroid(shape.inner);
+  return (
+    <g data-el={room.id} data-testid="plan-room">
+      <polygon points={pts(shape.inner)} fill={color} fillOpacity={state === "selected" ? 0.32 : state === "hover" ? 0.22 : 0.13} stroke={state === "selected" ? ACCENT : "none"} strokeWidth={2} />
+      <Txt at={{ x: c.x, y: c.y + 8 / s }} s={s} size={12} weight={600} fill="#e8ebf0">{room.name}</Txt>
+      <Txt at={{ x: c.x, y: c.y - 8 / s }} s={s} size={10.5} fill="#a1a9b6">{formatArea(shape.area)}</Txt>
+    </g>
+  );
+}
+
+function RoofOutline({ roof, state }: { roof: Roof; state: ShapeState }) {
+  const corners = rectCorners(roof.position, roof.width + roof.overhang * 2, roof.depth + roof.overhang * 2, roof.rotation);
+  const color = state === "selected" ? ACCENT : state === "hover" ? "#e8ebf0" : "#b8664a";
+  return (
+    <g data-el={roof.id}>
+      <polygon points={pts(corners)} fill="none" stroke={color} strokeWidth={2.5} strokeDasharray="10 5" />
+    </g>
+  );
+}
+
 function WallShape({ wall, openings, ext, state }: { wall: Wall; openings: Opening[]; ext: WallExtension; state: ShapeState }) {
   const spans = wallPlanCut(wall, openings, ext, CUT_HEIGHT);
   const fill = state === "selected" ? ACCENT : state === "hover" ? WALL_HOVER : WALL_FILL;
@@ -366,7 +455,24 @@ function OpeningShape({ opening, wall, state }: { opening: Opening; wall: Wall; 
   const cut = hole.v0 <= CUT_HEIGHT && hole.v1 >= CUT_HEIGHT;
 
   let symbol: React.ReactNode;
-  if (opening.type === "door") {
+  if (opening.type === "door" && opening.style === "opening") {
+    symbol = (
+      <>
+        <line {...seg(L(u0, -t), L(u0, t))} stroke={color} strokeWidth={1} strokeDasharray="3 3" />
+        <line {...seg(L(u1, -t), L(u1, t))} stroke={color} strokeWidth={1} strokeDasharray="3 3" />
+      </>
+    );
+  } else if (opening.type === "door" && opening.style === "sliding") {
+    const mid = (u0 + u1) / 2;
+    symbol = (
+      <>
+        <line {...seg(L(u0, t / 4), L(mid + 0.05, t / 4))} stroke={color} strokeWidth={2} />
+        <line {...seg(L(mid - 0.05, -t / 4), L(u1, -t / 4))} stroke={color} strokeWidth={2} />
+        <line {...seg(L(u0, -t), L(u0, t))} stroke={color} strokeWidth={1} />
+        <line {...seg(L(u1, -t), L(u1, t))} stroke={color} strokeWidth={1} />
+      </>
+    );
+  } else if (opening.type === "door") {
     const side = opening.opensTo === "left" ? 1 : -1;
     const hingeU = opening.hinge === "left" ? u0 : u1;
     const otherU = opening.hinge === "left" ? u1 : u0;
@@ -517,7 +623,7 @@ function PlanToolPreview({ s, unit }: { s: number; unit: LengthUnit }) {
 
 function NorthArrow() {
   return (
-    <div className="pointer-events-none absolute top-3 right-3 flex flex-col items-center rounded-md border border-ink-700 bg-ink-850/90 px-2 py-1.5 backdrop-blur" aria-label="Norte">
+    <div className="pointer-events-none absolute top-24 right-3 flex flex-col items-center rounded-md border border-ink-700 bg-ink-850/90 px-2 py-1.5 backdrop-blur" aria-label="Norte">
       <svg width="18" height="22" viewBox="0 0 18 22" aria-hidden>
         <path d="M9 1 15 19 9 15 3 19z" fill="#e8ebf0" />
         <path d="M9 1v14L3 19z" fill="#6c7584" />

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import {
-  AlertCircle, Box, Check, ChevronLeft, Cloud, Download, Focus, Keyboard, Loader2, Map as MapIcon, PanelLeft, PanelRight, Redo2, Save, Undo2,
+  AlertCircle, Box, Calculator, Check, ChevronLeft, Cloud, Download, Focus, Keyboard, Loader2, Map as MapIcon, PanelLeft, PanelRight, Redo2, Save, Undo2,
 } from "lucide-react";
 import { categoryLabel } from "@/core/model/categories";
 import { IconButton } from "@/ui/Button";
@@ -12,13 +12,13 @@ import { cn } from "@/lib/cn";
 import { relativeTime } from "@/lib/time";
 import { useEditor, type CameraPreset } from "../store";
 
-export function TopBar({ onSave, onExport, onShowShortcuts }: { onSave(): void; onExport(): void; onShowShortcuts(): void }) {
+export function TopBar({ onSave, onExport, onShowShortcuts, onBudget }: { onSave(): void; onExport(): void; onShowShortcuts(): void; onBudget(): void }) {
   const project = useEditor((s) => s.project);
   const canUndo = useEditor((s) => s.past.length > 0);
   const canRedo = useEditor((s) => s.future.length > 0);
   const view = useEditor((s) => s.view);
   const panels = useEditor((s) => s.panels);
-  const { undo, redo, setView, togglePanel, requestCamera, updateProject } = useEditor.getState();
+  const { undo, redo, togglePanel, requestCamera, updateProject } = useEditor.getState();
   if (!project) return null;
 
   return (
@@ -38,24 +38,11 @@ export function TopBar({ onSave, onExport, onShowShortcuts }: { onSave(): void; 
         <IconButton label="Salvar" shortcut="Ctrl+S" onClick={onSave} data-testid="save"><Save size={16} /></IconButton>
         <IconButton label="Exportar JSON" onClick={onExport} data-testid="export"><Download size={16} /></IconButton>
       </div>
+      <button onClick={onBudget} data-testid="open-budget" className="ml-2 flex items-center gap-1.5 rounded-md border border-accent-line bg-accent-soft px-2.5 py-1 text-[12px] font-medium text-fg hover:bg-accent/20">
+        <Calculator size={14} className="text-accent" /> Orçamento
+      </button>
 
-      <div className="mx-auto flex rounded-lg border border-ink-700 bg-ink-900 p-0.5" role="tablist" aria-label="Visualização">
-        {([["3d", "Modelo 3D", Box, "1"], ["2d", "Planta 2D", MapIcon, "2"]] as const).map(([v, label, Icon, key]) => (
-          <button
-            key={v}
-            role="tab"
-            aria-selected={view === v}
-            data-testid={`view-${v}`}
-            title={`${label} (${key})`}
-            onClick={() => setView(v)}
-            className={cn("flex items-center gap-1.5 rounded-md px-3 py-1 text-[12.5px] transition-colors", view === v ? "bg-ink-700 text-fg shadow-sm" : "text-fg-muted hover:text-fg")}
-          >
-            <Icon size={14} className={view === v ? "text-accent" : ""} />
-            {label}
-          </button>
-        ))}
-      </div>
-
+      <div className="mx-auto" />
       {view === "3d" && <CameraMenu onPick={requestCamera} />}
       <div className="flex items-center gap-0.5">
         <IconButton label="Painel esquerdo" shortcut="[" active={panels.left} onClick={() => togglePanel("left")}><PanelLeft size={16} /></IconButton>

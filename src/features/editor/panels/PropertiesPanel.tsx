@@ -1,8 +1,13 @@
 "use client";
 
-import { AlertTriangle, AppWindow, Box, BrickWall, DoorOpen, Layers, Trash2, Copy, RotateCw } from "lucide-react";
-import type { BuildingObject, Door, Element, Floor, Opening, Project, Wall, Window } from "@/core/model/schema";
-import { ELEMENT_TYPE_LABEL, isOpening, isWall } from "@/core/model/schema";
+import { AlertTriangle, AppWindow, Box, BrickWall, DoorOpen, Home, Layers, Plus, Trash2, Copy, RotateCw, Triangle } from "lucide-react";
+import type { BuildingObject, Door, Element, Floor, Opening, Project, Roof, RoofType, Room, RoomType, Wall, WallCore, Window } from "@/core/model/schema";
+import { ELEMENT_TYPE_LABEL, ROOM_TYPES, WALL_CORES, isOpening, isWall } from "@/core/model/schema";
+import { ROOM_TYPE_INFO } from "@/core/model/factory";
+import { roomShape } from "@/core/geometry/rooms";
+import { roofGeometry } from "@/core/geometry/roof";
+import { levelWalls } from "@/core/model/operations";
+import { ROOF_TYPE_LABEL } from "./ToolPanel";
 import { CATEGORIES } from "@/core/model/categories";
 import { LIBRARY } from "@/core/library/catalog";
 import { openingCenter, validateOpening, wallFrame, wallQuantities } from "@/core/geometry/wall";
@@ -19,6 +24,15 @@ const ICON: Record<Element["type"], React.ComponentType<{ size?: number; classNa
   window: AppWindow,
   floor: Layers,
   object: Box,
+  room: Home,
+  roof: Triangle,
+};
+
+export const WALL_CORE_LABEL: Record<WallCore, string> = {
+  "ceramic-brick": "Bloco cerâmico",
+  "concrete-block": "Bloco de concreto",
+  concrete: "Concreto",
+  drywall: "Drywall",
 };
 
 export function PropertiesPanel() {
@@ -43,7 +57,7 @@ function ElementProperties({ el, project }: { el: Element; project: Project }) {
   const { updateElement, deleteSelected, duplicateSelected, rotateSelected } = useEditor.getState();
   const unit = project.settings.displayUnit;
   const Icon = ICON[el.type];
-  const kindLabel = el.type === "object" ? (LIBRARY.find((i) => i.spec.elementType === "object" && i.spec.kind === el.kind)?.name ?? el.kind) : ELEMENT_TYPE_LABEL[el.type];
+  const kindLabel = el.type === "room" ? `Ambiente · ${ROOM_TYPE_INFO[el.roomType].label}` : el.type === "object" ? (LIBRARY.find((i) => i.spec.elementType === "object" && i.spec.kind === el.kind)?.name ?? el.kind) : ELEMENT_TYPE_LABEL[el.type];
 
   return (
     <>
@@ -55,10 +69,10 @@ function ElementProperties({ el, project }: { el: Element; project: Project }) {
           <div className="truncate text-[13px] font-medium" data-testid="selected-name">{el.name}</div>
           <div className="text-[11.5px] text-fg-subtle">{kindLabel}</div>
         </div>
-        <IconButton label="Girar 90°" shortcut="R" onClick={() => rotateSelected(90)} disabled={isOpening(el)}>
+        <IconButton label="Girar 90°" shortcut="R" onClick={() => rotateSelected(90)} disabled={isOpening(el) || el.type === "room"}>
           <RotateCw size={15} />
         </IconButton>
-        <IconButton label="Duplicar" shortcut="Ctrl+D" onClick={duplicateSelected}>
+        <IconButton label="Duplicar" shortcut="Ctrl+D" onClick={duplicateSelected} disabled={el.type === "room"}>
           <Copy size={15} />
         </IconButton>
         <IconButton label="Excluir" shortcut="Del" onClick={deleteSelected} className="hover:text-danger" data-testid="delete-element">
@@ -75,9 +89,18 @@ function ElementProperties({ el, project }: { el: Element; project: Project }) {
       {(el.type === "door" || el.type === "window") && <OpeningProps opening={el} project={project} unit={unit} />}
       {el.type === "floor" && <FloorProps floor={el} unit={unit} />}
       {el.type === "object" && <ObjectProps obj={el} unit={unit} />}
+      {el.type === "room" && <RoomProps room={el} project={project} unit={unit} />}
+      {el.type === "roof" && <RoofProps roof={el} unit={unit} />}
 
       <Section title="Aparência">
-        <MaterialField value={el.materialId} onChange={(materialId) => updateElement(el.id, { materialId })} label={isOpening(el) ? "Material (caixilho / folha)" : "Material"} />
+        <MaterialField
+          value={el.materialId}
+          onChange={(materialId) => updateElement(el.id, { materialId })}
+          label={isOpening(el) ? "Material (caixilho / folha)" : el.type === "room" ? "Acabamento do piso" : el.type === "wall" ? "Acabamento (pintura / revestimento)" : "Material"}
+        />
+        {el.type === "wall" && (
+          <SelectField label="Núcleo construtivo (alvenaria)" value={el.core} options={WALL_CORES.map((c) => ({ value: c, label: WALL_CORE_LABEL[c] }))} onChange={(core) => updateElement(el.id, { core })} />
+        )}
       </Section>
     </>
   );
@@ -242,6 +265,105 @@ function ObjectProps({ obj, unit }: { obj: BuildingObject; unit: LengthUnit }) {
   );
 }
 
+function RoomProps({ room, project, unit }: { room: Room; project: Project; unit: LengthUnit }) {
+  const s = useEditor.getState();
+  const shape = roomShape(levelWalls(project, room.levelId), room.seed);
+  const doors = shape ? project.elements.filter((e) => e.type === "door" && shape.wallIds.includes(e.hostId)).length : 0;
+  const windows = shape ? project.elements.filter((e) => e.type === "window" && shape.wallIds.includes(e.hostId)).length : 0;
+  return (
+    <>
+      {!shape && (
+        <div className="mx-3.5 mt-3 flex gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] text-warning" role="alert">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" /> Este ambiente não está fechado por paredes. Feche o contorno para calcular área e piso.
+        </div>
+      )}
+      <Section title="Ambiente">
+        <SelectField label="Tipo" value={room.roomType} options={ROOM_TYPES.map((t) => ({ value: t, label: ROOM_TYPE_INFO[t].label }))} onChange={(roomType: RoomType) => s.updateElement(room.id, { roomType })} />
+        {shape?.rect ? (
+          <Grid2>
+            <LengthField label="Largura (X)" value={shape.rect.maxX - shape.rect.minX} unit={unit} min={0.6} onCommit={(v) => s.resizeRoom(room.id, "x", v)} testId="room-width" />
+            <LengthField label="Profundidade (Y)" value={shape.rect.maxY - shape.rect.minY} unit={unit} min={0.6} onCommit={(v) => s.resizeRoom(room.id, "y", v)} testId="room-depth" />
+          </Grid2>
+        ) : (
+          shape && <p className="text-[11.5px] text-fg-subtle">Formato não retangular: altere movendo as paredes.</p>
+        )}
+        <p className="text-[11px] leading-relaxed text-fg-subtle">Medidas pelos eixos das paredes. Alterar move a parede do lado leste/norte; cômodos vizinhos se ajustam.</p>
+      </Section>
+      <Section title="Quantitativos do ambiente">
+        <Stat label="Área útil" value={shape ? formatArea(shape.area) : "—"} />
+        <Stat label="Perímetro interno" value={shape ? formatLength(shape.perimeter, unit) : "—"} />
+        <Stat label="Portas / janelas" value={`${doors} / ${windows}`} />
+        {shape && doors === 0 && <p className="text-[11.5px] text-warning">Sem porta: insira uma porta em uma das paredes do ambiente.</p>}
+      </Section>
+      <Section title="Forro / teto">
+        <label className="flex cursor-pointer items-center gap-2 text-[12px] text-fg-muted">
+          <input type="checkbox" className="accent-accent" checked={room.ceiling} onChange={(e) => s.updateElement(room.id, { ceiling: e.target.checked })} /> Possui forro
+        </label>
+        {room.ceiling && (
+          <>
+            <LengthField label="Altura do forro" value={room.ceilingHeight} unit={unit} min={2} onCommit={(ceilingHeight) => s.updateElement(room.id, { ceilingHeight })} />
+            <MaterialField label="Material do forro" value={room.ceilingMaterialId} onChange={(ceilingMaterialId) => s.updateElement(room.id, { ceilingMaterialId })} />
+          </>
+        )}
+      </Section>
+    </>
+  );
+}
+
+function RoofProps({ roof, unit }: { roof: Roof; unit: LengthUnit }) {
+  const s = useEditor.getState();
+  const g = roofGeometry(roof);
+  return (
+    <>
+      <Section title="Cobertura">
+        <SelectField label="Tipo" value={roof.roofType} options={(Object.keys(ROOF_TYPE_LABEL) as RoofType[]).map((r) => ({ value: r, label: ROOF_TYPE_LABEL[r] }))} onChange={(roofType) => s.updateElement(roof.id, { roofType })} />
+        <Grid2>
+          <AngleField label="Inclinação" value={roof.pitch} onCommit={(pitch) => s.updateElement(roof.id, { pitch })} />
+          <LengthField label="Beiral" value={roof.overhang} unit={unit} min={0} onCommit={(overhang) => s.updateElement(roof.id, { overhang })} />
+          <LengthField label="Largura (X)" value={roof.width} unit={unit} min={0.5} onCommit={(width) => s.updateElement(roof.id, { width })} />
+          <LengthField label="Profundidade (Y)" value={roof.depth} unit={unit} min={0.5} onCommit={(depth) => s.updateElement(roof.id, { depth })} />
+          <LengthField label="Altura do beiral" value={roof.baseHeight} unit={unit} onCommit={(baseHeight) => s.updateElement(roof.id, { baseHeight })} />
+          <AngleField label="Rotação" value={roof.rotation} onCommit={(rotation) => s.updateElement(roof.id, { rotation })} />
+        </Grid2>
+      </Section>
+      <Section title="Quantitativos">
+        <Stat label="Área inclinada" value={formatArea(g.area)} />
+        <Stat label="Projeção (com beirais)" value={formatArea(g.footprint)} />
+        <Stat label="Cumeeira" value={formatLength(g.ridge, unit)} />
+        <Stat label="Altura da cumeeira" value={formatLength(g.rise, unit)} />
+        <p className="pt-1 text-[11px] text-fg-subtle">Geometria indicativa. A estrutura do telhado deve ser projetada por profissional habilitado.</p>
+      </Section>
+    </>
+  );
+}
+
+function LevelsSection({ project }: { project: Project }) {
+  const s = useEditor.getState();
+  const active = useEditor((st) => st.activeLevelId);
+  const unit = project.settings.displayUnit;
+  return (
+    <Section title="Pavimentos" action={<button onClick={s.addLevelAbove} className="flex items-center gap-1 text-[11.5px] text-accent hover:text-accent-hover" data-testid="add-level"><Plus size={12} /> Adicionar</button>}>
+      {[...project.levels].reverse().map((l) => (
+        <div key={l.id} className={`rounded-md border p-2 ${l.id === active ? "border-accent-line bg-accent-soft" : "border-ink-700"}`}>
+          <div className="flex items-center gap-2">
+            <button className="flex-1 text-left text-[12.5px] font-medium" onClick={() => s.setActiveLevel(l.id)}>{l.name}</button>
+            {project.levels.length > 1 && (
+              <button className="text-fg-subtle hover:text-danger" title="Excluir pavimento e seus elementos" onClick={() => { if (window.confirm(`Excluir "${l.name}" e todos os seus elementos?`)) s.deleteLevel(l.id); }}><Trash2 size={13} /></button>
+            )}
+          </div>
+          {l.id === active && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <TextField label="Nome" value={l.name} onCommit={(name) => s.updateLevel(l.id, { name })} />
+              <LengthField label="Cota do piso" value={l.elevation} unit={unit} onCommit={(elevation) => s.updateLevel(l.id, { elevation })} />
+              <LengthField label="Piso a piso" value={l.height} unit={unit} min={2} onCommit={(height) => s.updateLevel(l.id, { height })} />
+            </div>
+          )}
+        </div>
+      ))}
+    </Section>
+  );
+}
+
 function ProjectProperties({ project }: { project: Project }) {
   const s = useEditor.getState();
   const unit = project.settings.displayUnit;
@@ -252,6 +374,7 @@ function ProjectProperties({ project }: { project: Project }) {
         <TextField label="Nome" value={project.name} onCommit={(name) => s.updateProject({ name })} />
         <SelectField label="Categoria" value={project.category} options={CATEGORIES.map((c) => ({ value: c.id, label: c.label }))} onChange={(category) => s.updateProject({ category })} />
       </Section>
+      <LevelsSection project={project} />
       <Section title="Terreno / área de trabalho">
         <Grid2>
           <LengthField label="Largura (X)" value={project.site.width} unit={unit} min={0.5} onCommit={(width) => s.updateProject({ site: { ...project.site, width } })} />
@@ -271,6 +394,9 @@ function ProjectProperties({ project }: { project: Project }) {
         </label>
       </Section>
       <Section title="Resumo do modelo">
+        <Stat label="Pavimentos" value={String(st.levels)} />
+        <Stat label="Ambientes" value={`${st.rooms} · ${formatArea(st.totalRoomArea)}`} />
+        <Stat label="Telhados" value={`${st.roofs} · ${formatArea(st.totalRoofArea)}`} />
         <Stat label="Paredes" value={String(st.walls)} />
         <Stat label="Portas / janelas" value={`${st.doors} / ${st.windows}`} />
         <Stat label="Pisos" value={String(st.floors)} />

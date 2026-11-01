@@ -13,6 +13,7 @@ import { ProjectCard } from "@/features/projects/ProjectCard";
 import { NewProjectDialog } from "@/features/projects/NewProjectDialog";
 import { CategoryIcon } from "@/features/projects/CategoryIcon";
 import { useProjects } from "@/features/projects/store";
+import { HomeBuilderHero } from "@/features/home/HomeBuilderHero";
 
 const ACTIVITY_LABEL: Record<ActivityEvent["type"], string> = {
   created: "criou",
@@ -51,10 +52,11 @@ export function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-8 py-7">
-      <header className="flex items-end justify-between gap-6">
+      <HomeBuilderHero />
+      <header className="mt-8 flex items-end justify-between gap-6">
         <div>
           <div className="label-caps">Visão geral</div>
-          <h1 className="mt-1 text-[24px] font-semibold tracking-tight">Seu estúdio de projetos</h1>
+          <h2 className="mt-1 text-[20px] font-semibold tracking-tight">Seu estúdio de projetos</h2>
           <p className="mt-1 text-fg-muted">
             {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
           </p>

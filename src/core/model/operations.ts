@@ -1,5 +1,7 @@
-import type { Element, Opening, Project, Wall } from "./schema";
-import { ElementSchema, isFloor, isOpening, isWall } from "./schema";
+import type { Element, Level, Opening, Project, Wall } from "./schema";
+import { ElementSchema, LevelSchema, isFloor, isOpening, isRoof, isRoom, isWall } from "./schema";
+import { roomShape } from "../geometry/rooms";
+import { roofGeometry } from "../geometry/roof";
 import { DomainError } from "./errors";
 import { MIN_WALL_LENGTH, nextName } from "./factory";
 import { createId } from "./ids";
@@ -42,6 +44,12 @@ export function validateElement(el: Element, elements: readonly Element[]): Elem
   return valid;
 }
 
+function assertLevel(project: Project, el: Element) {
+  if ("levelId" in el && !project.levels.some((l) => l.id === el.levelId)) {
+    throw new DomainError("O elemento precisa pertencer a um pavimento existente.");
+  }
+}
+
 export function addElements(project: Project, newElements: readonly Element[]): Project {
   const all = [...project.elements, ...newElements];
   const ids = new Set(project.elements.map((e) => e.id));
@@ -49,6 +57,7 @@ export function addElements(project: Project, newElements: readonly Element[]): 
     if (ids.has(el.id)) throw new DomainError("Identificador de elemento duplicado.");
     ids.add(el.id);
     validateElement(el, all);
+    assertLevel(project, el);
   }
   return withElements(project, all);
 }
@@ -58,6 +67,7 @@ export function updateElement(project: Project, id: string, patch: ElementPatch)
   const current = requireElement(project, id);
   const merged = { ...current, ...patch, id: current.id, type: current.type } as Element;
   const valid = validateElement(merged, project.elements);
+  assertLevel(project, valid);
   return withElements(
     project,
     project.elements.map((e) => (e.id === id ? valid : e)),
@@ -81,6 +91,7 @@ export function wallEndForAngle(wall: Wall, angleDeg: number): Vec2 {
 }
 
 const roundPt = (p: Vec2): Vec2 => ({ x: roundTo(p.x, 9), y: roundTo(p.y, 9) });
+const key2 = (p: Vec2) => `${Math.round(p.x * 1e4)}|${Math.round(p.y * 1e4)}`;
 
 /**
  * Altera as extremidades de uma parede mantendo as JUNTAS: extremidades de
@@ -119,17 +130,65 @@ export function setWallEndpoints(project: Project, id: string, next: { start?: V
   return withElements(project, updated);
 }
 
+/**
+ * Paredes colineares encadeadas pelas extremidades (mesmo alinhamento, mesmo pavimento):
+ * formam uma "fachada" contínua que deve se mover junta.
+ */
+export function collinearChain(project: Pick<Project, "elements">, wall: Wall): Wall[] {
+  const walls = project.elements.filter((e): e is Wall => isWall(e) && e.levelId === wall.levelId);
+  const d = sub(wall.end, wall.start);
+  const len = Math.hypot(d.x, d.y);
+  const onLine = (p: Vec2) => Math.abs((p.x - wall.start.x) * d.y - (p.y - wall.start.y) * d.x) / len < 1e-4;
+  const chain = new Map<string, Wall>([[wall.id, wall]]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const w of walls) {
+      if (chain.has(w.id) || !onLine(w.start) || !onLine(w.end)) continue;
+      const touches = [...chain.values()].some((c) => samePoint(c.start, w.start) || samePoint(c.start, w.end) || samePoint(c.end, w.start) || samePoint(c.end, w.end));
+      if (touches) {
+        chain.set(w.id, w);
+        grew = true;
+      }
+    }
+  }
+  return [...chain.values()];
+}
+
 /** Translada um elemento. Aberturas deslizam ao longo da parede (componente projetada). */
 export function moveElement(project: Project, id: string, delta: Vec2): Project {
   const el = requireElement(project, id);
   switch (el.type) {
-    case "wall":
-      return setWallEndpoints(project, id, { start: add(el.start, delta), end: add(el.end, delta) });
+    case "wall": {
+      // Movimento perpendicular ao eixo: o alinhamento colinear inteiro acompanha (fachada contínua).
+      const dir = wallFrame(el).dir;
+      const along = Math.abs(dot(delta, dir));
+      const perpendicular = along < 1e-9 * Math.max(1, Math.hypot(delta.x, delta.y)) + 1e-12;
+      if (!perpendicular) return setWallEndpoints(project, id, { start: add(el.start, delta), end: add(el.end, delta) });
+      let next = project;
+      const chain = collinearChain(project, el);
+      // Move cada parede da cadeia com as juntas; as extremidades compartilhadas da cadeia
+      // já movidas não são movidas de novo (comparação com o estado original).
+      const moved = new Set<string>();
+      for (const w of chain) {
+        const cur = next.elements.find((e) => e.id === w.id) as Wall;
+        const start = moved.has(key2(w.start)) ? cur.start : add(w.start, delta);
+        const end = moved.has(key2(w.end)) ? cur.end : add(w.end, delta);
+        next = setWallEndpoints(next, w.id, { start, end });
+        moved.add(key2(w.start));
+        moved.add(key2(w.end));
+      }
+      return next;
+    }
     case "floor":
     case "object":
       return updateElement(project, id, {
         position: { ...el.position, x: roundTo(el.position.x + delta.x, 9), y: roundTo(el.position.y + delta.y, 9) },
       });
+    case "roof":
+      return updateElement(project, id, { position: { x: roundTo(el.position.x + delta.x, 9), y: roundTo(el.position.y + delta.y, 9) } });
+    case "room":
+      throw new DomainError("Ambientes são definidos pelas paredes: mova as paredes ou altere as dimensões no painel.");
     case "door":
     case "window": {
       const host = requireElement(project, el.hostId) as Wall;
@@ -144,9 +203,10 @@ export function moveElement(project: Project, id: string, delta: Vec2): Project 
 /** Gira um elemento no plano. Paredes giram em torno do ponto médio. */
 export function rotateElement(project: Project, id: string, deltaDeg: number): Project {
   const el = requireElement(project, id);
-  if (el.type === "floor" || el.type === "object") {
+  if (el.type === "floor" || el.type === "object" || el.type === "roof") {
     return updateElement(project, id, { rotation: normalizeDegrees(el.rotation + deltaDeg) });
   }
+  if (el.type === "room") throw new DomainError("Ambientes giram junto com as paredes que os delimitam.");
   if (el.type === "wall") {
     const mid = { x: (el.start.x + el.end.x) / 2, y: (el.start.y + el.end.y) / 2 };
     const r = degToRad(deltaDeg);
@@ -194,13 +254,12 @@ export function duplicateElement(project: Project, id: string): { project: Proje
         created.push({ ...o, id: createId(), hostId: wallCopy.id, name: nextName(pool(), prefix(o.name)) });
       }
     }
+  } else if (el.type === "floor" || el.type === "object") {
+    created.push({ ...el, id: createId(), name: nextName(pool(), prefix(el.name)), position: { ...el.position, x: el.position.x + shift.x, y: el.position.y + shift.y } });
+  } else if (el.type === "roof") {
+    created.push({ ...el, id: createId(), name: nextName(pool(), prefix(el.name)), position: { x: el.position.x + shift.x, y: el.position.y + shift.y } });
   } else {
-    created.push({
-      ...el,
-      id: createId(),
-      name: nextName(pool(), prefix(el.name)),
-      position: { ...el.position, x: el.position.x + shift.x, y: el.position.y + shift.y },
-    });
+    throw new DomainError("Para duplicar um ambiente, crie um novo cômodo ao lado.");
   }
   return { project: addElements(project, created), newId: created[0]!.id };
 }
@@ -215,6 +274,11 @@ export interface ProjectStats {
   totalWallNetArea: number;
   totalWallVolume: number;
   totalFloorArea: number;
+  rooms: number;
+  totalRoomArea: number;
+  roofs: number;
+  totalRoofArea: number;
+  levels: number;
 }
 
 /** Quantitativos básicos (base para o futuro módulo de orçamentos). */
@@ -230,6 +294,11 @@ export function projectStats(project: Pick<Project, "elements">): ProjectStats {
     totalWallNetArea: 0,
     totalWallVolume: 0,
     totalFloorArea: 0,
+    rooms: 0,
+    totalRoomArea: 0,
+    roofs: 0,
+    totalRoofArea: 0,
+    levels: "levels" in project ? (project as Project).levels.length : 1,
   };
   for (const e of project.elements) {
     if (isWall(e)) {
@@ -241,9 +310,83 @@ export function projectStats(project: Pick<Project, "elements">): ProjectStats {
     } else if (isFloor(e)) {
       stats.floors++;
       stats.totalFloorArea += floorArea(e);
+    } else if (isRoom(e)) {
+      stats.rooms++;
+      const shape = roomShape(project.elements.filter((w): w is Wall => isWall(w) && w.levelId === e.levelId), e.seed);
+      stats.totalRoomArea += shape?.area ?? 0;
+    } else if (isRoof(e)) {
+      stats.roofs++;
+      stats.totalRoofArea += roofGeometry(e).area;
     } else if (e.type === "door") stats.doors++;
     else if (e.type === "window") stats.windows++;
     else stats.objects++;
   }
   return stats;
+}
+
+/** Paredes de um pavimento. */
+export const levelWalls = (project: Pick<Project, "elements">, levelId: string): Wall[] =>
+  project.elements.filter((e): e is Wall => isWall(e) && e.levelId === levelId);
+
+// ---------- Pavimentos ----------
+
+export function addLevel(project: Project, level: Level): Project {
+  const parsed = LevelSchema.safeParse(level);
+  if (!parsed.success) throw new DomainError(parsed.error.issues[0]?.message ?? "Pavimento inválido.");
+  if (project.levels.some((l) => l.id === level.id)) throw new DomainError("Pavimento duplicado.");
+  return { ...project, levels: [...project.levels, parsed.data].sort((a, b) => a.elevation - b.elevation) };
+}
+
+export function updateLevel(project: Project, id: string, patch: Partial<Omit<Level, "id">>): Project {
+  const cur = project.levels.find((l) => l.id === id);
+  if (!cur) throw new DomainError("Pavimento não encontrado.");
+  const parsed = LevelSchema.safeParse({ ...cur, ...patch, id });
+  if (!parsed.success) throw new DomainError(parsed.error.issues[0]?.message ?? "Pavimento inválido.");
+  return { ...project, levels: project.levels.map((l) => (l.id === id ? parsed.data : l)).sort((a, b) => a.elevation - b.elevation) };
+}
+
+/** Remove um pavimento e TODOS os seus elementos (aberturas incluídas). */
+export function deleteLevel(project: Project, id: string): Project {
+  if (project.levels.length <= 1) throw new DomainError("O projeto precisa de ao menos um pavimento.");
+  const ids = project.elements.filter((e) => "levelId" in e && e.levelId === id).map((e) => e.id);
+  const { project: next } = deleteElements(project, ids);
+  return { ...next, levels: next.levels.filter((l) => l.id !== id) };
+}
+
+// ---------- Ambientes ----------
+
+/**
+ * Redimensiona um ambiente retangular movendo a parede do lado leste (largura)
+ * ou norte (profundidade). Paredes unidas acompanham e ambientes vizinhos se
+ * ajustam automaticamente, pois seus contornos são derivados das paredes.
+ */
+export function resizeRoom(project: Project, roomId: string, axis: "x" | "y", newSize: number): Project {
+  const room = project.elements.find((e) => e.id === roomId);
+  if (!room || !isRoom(room)) throw new DomainError("Ambiente não encontrado.");
+  const walls = levelWalls(project, room.levelId);
+  const shape = roomShape(walls, room.seed);
+  if (!shape) throw new DomainError("O ambiente não está fechado por paredes.");
+  if (!shape.rect) throw new DomainError("Só ambientes retangulares podem ser redimensionados por largura/profundidade.");
+  if (!(newSize >= 0.6)) throw new DomainError("O ambiente precisa ter ao menos 60 cm.");
+  const r = shape.rect;
+  const current = axis === "x" ? r.maxX - r.minX : r.maxY - r.minY;
+  const delta = roundTo(newSize - current, 9);
+  if (Math.abs(delta) < 1e-9) return project;
+  const edge = axis === "x" ? r.maxX : r.maxY;
+  const onEdge = walls.filter((w) =>
+    axis === "x"
+      ? Math.abs(w.start.x - edge) < 1e-4 && Math.abs(w.end.x - edge) < 1e-4 && Math.max(w.start.y, w.end.y) > r.minY + 1e-4 && Math.min(w.start.y, w.end.y) < r.maxY - 1e-4
+      : Math.abs(w.start.y - edge) < 1e-4 && Math.abs(w.end.y - edge) < 1e-4 && Math.max(w.start.x, w.end.x) > r.minX + 1e-4 && Math.min(w.start.x, w.end.x) < r.maxX - 1e-4,
+  );
+  if (onEdge.length === 0) throw new DomainError("Não foi encontrada a parede do lado a ser movido.");
+  let next = project;
+  const done = new Set<string>();
+  for (const w of onEdge) {
+    if (done.has(w.id)) continue;
+    for (const c of collinearChain(next, next.elements.find((e) => e.id === w.id) as Wall)) done.add(c.id);
+    next = moveElement(next, w.id, axis === "x" ? { x: delta, y: 0 } : { x: 0, y: delta });
+  }
+  // Mantém a semente dentro do ambiente.
+  const center = axis === "x" ? { x: (r.minX + r.maxX + delta) / 2, y: room.seed.y } : { x: room.seed.x, y: (r.minY + r.maxY + delta) / 2 };
+  return updateElement(next, roomId, { seed: center });
 }

@@ -1,0 +1,13 @@
+Garagem | Garagem | Térreo | 33,87 m² | 23,28 m | 2 | 0 | Cimento queimado
+Sala de estar | Sala | Térreo | 45,51 m² | 27,28 m | 2 | 2 | Porcelanato claro
+Cozinha | Cozinha | Térreo | 45,51 m² | 27,28 m | 4 | 1 | Porcelanato claro
+Banheiro social | Banheiro | Térreo | 7,95 m² | 11,28 m | 2 | 1 | Piso cerâmico
+Lavanderia | Lavanderia | Térreo | 7,95 m² | 11,28 m | 4 | 0 | Piso cerâmico
+Escritório | Escritório | Térreo | 16,41 m² | 17,28 m | 2 | 1 | Madeira carvalho
+Área gourmet | Área gourmet | Térreo | 29,87 m² | 23,28 m | 3 | 1 | Piso cerâmico
+Suíte | Suíte | Pavimento superior | 33,87 m² | 23,28 m | 2 | 1 | Madeira carvalho
+Banheiro da suíte | Banheiro | Pavimento superior | 7,95 m² | 11,28 m | 2 | 1 | Piso cerâmico
+Banheiro (superior) | Banheiro | Pavimento superior | 7,95 m² | 11,28 m | 1 | 1 | Piso cerâmico
+Quarto 2 | Quarto | Pavimento superior | 18,41 m² | 17,28 m | 1 | 1 | Madeira carvalho
+Quarto 3 | Quarto | Pavimento superior | 18,41 m² | 17,28 m | 1 | 2 | Madeira carvalho
+Circulação | Circulação | Pavimento superior | 65,94 m² | 37,56 m | 6 | 1 | Porcelanato claro

@@ -13,13 +13,13 @@ beforeEach(() => {
 });
 
 describe("editor — fluxo de modelagem", () => {
-  it("ferramenta Ambiente cria 4 paredes e piso com snap na grade", () => {
+  it("ferramenta Cômodo cria 4 paredes e o ambiente com snap na grade", () => {
     S().setTool("room");
     S().pointerClick({ x: 0.02, y: -0.03 });
     S().pointerClick({ x: 5.04, y: 4.01 });
     expect(walls()).toHaveLength(4);
     expect(walls()[0]).toMatchObject({ start: { x: 0, y: 0 }, end: { x: 5, y: 0 } });
-    expect(S().project!.elements.filter((e) => e.type === "floor")).toHaveLength(1);
+    expect(S().project!.elements.filter((e) => e.type === "room")).toHaveLength(1);
     expect(S().saveStatus).toBe("dirty");
     expect(S().revision).toBe(1);
   });

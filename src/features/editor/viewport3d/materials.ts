@@ -35,3 +35,17 @@ export function threeMaterial(materialId: string, highlight: Highlight = "none")
 
 export const EDGE_COLOR = "#0b0d10";
 export const EDGE_SELECTED = "#7fb2ff";
+
+const doubleCache = new Map<string, THREE.MeshStandardMaterial>();
+
+/** Variante de dupla face (forros, telhados), também compartilhada. */
+export function threeMaterialDouble(materialId: string, highlight: Highlight = "none"): THREE.MeshStandardMaterial {
+  const key = `${materialId}:${highlight}`;
+  let m = doubleCache.get(key);
+  if (!m) {
+    m = threeMaterial(materialId, highlight).clone();
+    m.side = THREE.DoubleSide;
+    doubleCache.set(key, m);
+  }
+  return m;
+}

@@ -49,6 +49,8 @@ export function objectParts(o: Dims): ObjectPart[] {
       return [box(0, 0, 0, L, W, H)];
     case "column-round":
       return [cyl(0, 0, 0, L, W, H)];
+    case "beam":
+      return [box(0, 0, 0, L, W, H)];
     case "stair-straight": {
       const n = stairSteps(H);
       const run = L / n;
@@ -140,5 +142,61 @@ export function objectParts(o: Dims): ObjectPart[] {
         cyl(-hl + 0.15, hw - 0.15, H - 0.12, 0.2, 0.2, 0.02, "steel-inox"),
       ];
     }
+    case "kitchen-island": {
+      const top = 0.04;
+      return [box(0, 0, 0.1, L - 0.1, W - 0.1, H - top - 0.1, "mdf-white"), box(0, 0, 0, L - 0.2, W - 0.2, 0.1, "mdf-graphite"), box(0, 0, H - top, L, W, top)];
+    }
+    case "sink-cabinet": {
+      const top = 0.03;
+      return [
+        box(0, 0.01, 0.1, L, W - 0.02, H - top - 0.1, "mdf-white"),
+        box(0, 0.03, 0, L, W - 0.06, 0.1, "mdf-graphite"),
+        box(0, 0, H - top, L, W, top),
+        box(0, 0, H - 0.2, Math.min(0.5, L * 0.6), Math.min(0.4, W * 0.7), 0.18, "steel-inox"),
+      ];
+    }
+    case "cooktop":
+      return [
+        box(0, 0, 0, L, W, Math.min(0.06, H)),
+        ...[-1, 1].flatMap((sx) => [-1, 1].map((sy) => cyl((sx * L) / 4, (sy * W) / 4, Math.min(0.06, H), 0.12, 0.12, 0.01, "steel-inox"))),
+      ];
+    case "oven-tower":
+      return [box(0, 0, 0, L, W, H, "mdf-white"), box(0, -hw + 0.01, H * 0.45, L - 0.1, 0.02, 0.5, "glass-smoked")];
+    case "fridge":
+      return [box(0, 0.01, 0, L, W - 0.02, H), box(hl - 0.06, -hw + 0.01, H * 0.5, 0.02, 0.02, 0.4, "aluminum")];
+    case "tv-rack":
+      return [box(0, 0, 0.15, L, W, H - 0.15), ...[-1, 1].map((sx) => box(sx * (hl - 0.05), 0, 0, 0.04, W - 0.06, 0.15, "steel"))];
+    case "tv":
+      return [box(0, 0, 0, Math.min(0.3, L / 4), Math.min(0.2, W), 0.05, "steel"), box(0, 0, 0.05, 0.05, 0.03, Math.max(H * 0.15, 0.02), "steel"), box(0, 0, H * 0.18, L, Math.min(0.05, W), H * 0.82, "glass-smoked")];
+    case "tv-panel":
+      return [box(0, 0, 0, L, W, H)];
+    case "nightstand":
+      return [box(0, 0, 0.08, L, W, H - 0.08), ...[-1, 1].flatMap((sx) => [-1, 1].map((sy) => box(sx * (hl - 0.03), sy * (hw - 0.03), 0, 0.03, 0.03, 0.08, "steel")))];
+    case "desk": {
+      const top = 0.03;
+      return [box(0, 0, H - top, L, W, top), box(-hl + 0.02, 0, 0, 0.04, W, H - top, "steel"), box(hl - 0.02, 0, 0, 0.04, W, H - top, "steel")];
+    }
+    case "bath-vanity": {
+      const top = 0.03;
+      return [box(0, 0.01, 0.25, L, W - 0.02, H - top - 0.25), box(0, 0, H - top, L, W, top, "marble-white"), cyl(0, 0, H - 0.01, Math.min(0.4, L * 0.6), Math.min(0.32, W * 0.7), 0.01, "ceramic-white")];
+    }
+    case "pool": {
+      const coping = Math.min(0.3, L / 6, W / 6);
+      return [
+        box(0, -hw + coping / 2, 0, L, coping, H, "paving-stone"),
+        box(0, hw - coping / 2, 0, L, coping, H, "paving-stone"),
+        box(-hl + coping / 2, 0, 0, coping, W - coping * 2, H, "paving-stone"),
+        box(hl - coping / 2, 0, 0, coping, W - coping * 2, H, "paving-stone"),
+        box(0, 0, 0, L - coping * 2, W - coping * 2, H * 0.6, "water"),
+      ];
+    }
+    case "tree":
+      return [cyl(0, 0, 0, Math.min(0.3, L / 4), Math.min(0.3, W / 4), H * 0.45, "wood-walnut"), cyl(0, 0, H * 0.35, L, W, H * 0.65, "foliage")];
+    case "shrub":
+      return [cyl(0, 0, 0, L, W, H, "foliage")];
+    case "grill":
+      return [box(0, 0, 0, L, W, H * 0.45, "ceramic-brick"), box(0, 0, H * 0.45, L, W, 0.04, "granite-black"), box(0, 0.05, H * 0.45 + 0.04, L * 0.6, W * 0.6, H * 0.55 - 0.04, "ceramic-brick")];
+    case "car":
+      return [box(0, 0, 0.15, L, W, H * 0.45), box(-L * 0.05, 0, 0.15 + H * 0.45, L * 0.55, W * 0.9, H * 0.4, "glass-smoked"), ...[-1, 1].flatMap((sx) => [-1, 1].map((sy) => cyl(sx * L * 0.32, sy * (hw - 0.12), 0, 0.6, 0.22, 0.6, "granite-black")))];
   }
 }

@@ -10,12 +10,16 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "node scripts/e2e-acceptance.cjs"
+    "e2e": "node scripts/e2e-acceptance.cjs",
+    "e2e:m3": "node scripts/e2e-missao-003-004.cjs",
+    "demo": "node scripts/demo-package.cjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "geist": "^1.9.0",
+    "jspdf": "4.2.1",
+    "jspdf-autotable": "5.0.9",
     "lucide-react": "^1.66.0",
     "next": "^16.4.3",
     "react": "~19.3.1",

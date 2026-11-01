@@ -83,6 +83,16 @@ export class ProjectService {
     return exportProjectJson(project, this.clock());
   }
 
+  /** Cria um NOVO projeto a partir de um modelo/gerador (novo id e datas). */
+  async createFrom(source: Project, name?: string): Promise<Project> {
+    const now = this.clock().toISOString();
+    const parsed = ProjectSchema.safeParse({ ...structuredClone(source), id: createId(), name: name ?? source.name, createdAt: now, updatedAt: now, favorite: false });
+    if (!parsed.success) throw new DomainError(`Modelo inválido: ${parsed.error.issues[0]?.message}`);
+    await this.repo.save(parsed.data);
+    this.activity.record("created", parsed.data, this.clock());
+    return parsed.data;
+  }
+
   /** Importa como NOVO projeto (nunca sobrescreve um existente). */
   async importJson(text: string): Promise<Project> {
     const imported = parseProjectJson(text);

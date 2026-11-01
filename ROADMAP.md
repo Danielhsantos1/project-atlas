@@ -16,6 +16,16 @@ Legenda: ✅ entregue e testado · 🔜 próxima etapa · 📋 planejado
 - ✅ Desfazer/refazer, autosave com controle de revisão, exportação/importação JSON versionada
 - ✅ 78 testes unitários + teste de aceitação E2E (14/14)
 
+## v0.3 — Missões 003 e 004 (entregue)
+
+- ✅ Modelo v2 (pavimentos, ambientes derivados, telhados, vão livre, porta de correr) com migração v1→v2
+- ✅ ATLAS HOME BUILDER, paleta de cômodos, pavimentos, 8 modos de visualização, 52 itens de biblioteca
+- ✅ Passeio 3D com colisão, gravidade, escadas, portas e pavimentos
+- ✅ ATLAS BUDGET (quantitativos, preços, orçamento versionado, proposta PDF)
+- ✅ ATLAS AI local (interpretador, gerador, verificador) e base SaaS (papéis, permissões, planos)
+- ✅ Residência moderna de dois pavimentos (modelo demonstrativo) + pacote de entregáveis
+- ✅ 186 testes unitários + 2 suítes de aceitação no navegador
+
 ## v0.2 — Robustez do editor 🔜
 
 - 🔜 Seleção múltipla (Shift+clique, caixa de seleção) e operações em lote
@@ -38,7 +48,7 @@ Legenda: ✅ entregue e testado · 🔜 próxima etapa · 📋 planejado
 
 ## v0.4 — Plataforma SaaS 📋
 
-- 📋 Backend (API) + PostgreSQL implementando `ProjectRepository`
+- 📋 Backend (API) + PostgreSQL implementando `ProjectRepository` e `BudgetRepository`; aplicar `src/saas` no servidor
 - 📋 Autenticação, organizações/empresas, papéis e permissões
 - 📋 Sincronização e resolução de conflitos; histórico de versões no servidor
 - 📋 Assinaturas e cobrança (somente com autorização explícita)
@@ -60,6 +70,14 @@ Limites já reservados em `src/modules/registry.ts`:
 | Inteligência artificial | Assistente de modelagem e geração de layouts |
 | Orçamentos / Quantitativos | Composições de custo sobre `QuantityProvider` |
 | Gestão de obras | Cronograma, medições, diário de obra |
+
+## Próximos passos já identificados
+
+- Instalações elétricas/hidráulicas (a etapa 6 da visualização de obra hoje apenas avisa que não há modelagem)
+- Provedor de IA com modelo de linguagem atrás da interface `AiProvider` (chave de API e política de privacidade)
+- Texturas PBR e iluminação solar por data/hora; interruptores e janelas interativos no passeio
+- Folhas de porta como obstáculo; rampas; telhado com águas independentes
+- Base de preços oficial (SINAPI) via importação periódica; composições de custo
 
 ## Próxima etapa recomendada
 
