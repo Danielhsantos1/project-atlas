@@ -13,6 +13,7 @@ import {
   deleteLevel,
   resizeRoom,
   rotateElement,
+  setLevelCeilingHeight,
   setWallEndpoints,
   updateElement,
   updateLevel,
@@ -22,6 +23,7 @@ import {
 } from "@/core/model/operations";
 import { createFloor, createLevel, createObject, createOpening, createRoof, createRoomWithWalls, createWall } from "@/core/model/factory";
 import { getLibraryItem } from "@/core/library/catalog";
+import { planGarage, type GarageLayout } from "@/core/planning/garage";
 import { findNearestWall, orthoConstrain, snapPoint, wallEndpoints } from "@/core/geometry/snap";
 import { wallLength } from "@/core/geometry/wall";
 import { add, normalize, samePoint, scale, sub, type Vec2 } from "@/core/geometry/vec";
@@ -45,7 +47,15 @@ export type Tool =
   | { kind: "room"; preset: WallPreset; anchor: Vec2 | null; roomType: RoomType }
   | { kind: "roof"; anchor: Vec2 | null; roofType: RoofType; pitch: number }
   | { kind: "floor"; preset: FloorPreset; anchor: Vec2 | null }
-  | { kind: "place"; itemId: string };
+  | { kind: "place"; itemId: string; size?: OpeningSize }
+  | { kind: "garage"; cars: number; layout: GarageLayout };
+
+/** Medidas livres de porta/janela escolhidas pelo usuário antes de inserir (metros). */
+export interface OpeningSize {
+  width: number;
+  height: number;
+  sillHeight?: number;
+}
 
 export type ToolKind = Tool["kind"];
 export type ViewMode = "3d" | "2d";
@@ -112,6 +122,10 @@ interface EditorState {
   setQuality(q: Quality): void;
   resizeRoom(id: string, axis: "x" | "y", size: number): boolean;
   setRoomTool(roomType: RoomType): void;
+  /** Define medidas livres para a próxima porta/janela inserida (null = usar as da biblioteca). */
+  setPlaceSize(size: OpeningSize | null): void;
+  setGarageTool(cars: number, layout: GarageLayout): void;
+  setCeilingHeight(levelId: string, height: number): boolean;
 
   load(project: Project): void;
   unload(): void;
@@ -241,6 +255,17 @@ export const useEditor = create<EditorState>((set, get) => {
     setInteriorRoom: (id) => set({ interiorRoomId: id }),
     setQuality: (quality) => set({ quality }),
     resizeRoom: (id, axis, size) => get().commit((p) => resizeRoom(p, id, axis, size)),
+    setPlaceSize(size) {
+      const { tool } = get();
+      if (tool.kind !== "place") return;
+      set({ tool: { ...tool, ...(size ? { size } : { size: undefined }) } });
+    },
+    setGarageTool(cars, layout) {
+      if (!get().project) return;
+      useCursor.getState().clear();
+      set({ tool: { kind: "garage", cars, layout }, selectedId: null });
+    },
+    setCeilingHeight: (levelId, height) => get().commit((p) => setLevelCeilingHeight(p, levelId, height)),
     setRoomTool(roomType) {
       const p = get().project;
       if (!p) return;
@@ -594,6 +619,36 @@ export const useEditor = create<EditorState>((set, get) => {
           return;
         }
 
+        case "garage": {
+          const plan = planGarage(tool.cars, tool.layout);
+          const a = p;
+          const b = { x: p.x + plan.width, y: p.y + plan.depth };
+          let id = "";
+          const ok = get().commit((proj) => {
+            const { walls, room } = createRoomWithWalls(proj.elements, a, b, "garagem", { ...defaultWallPreset(proj), levelId: get().activeLevelId });
+            let next = addElements(proj, [...walls, { ...room, name: `Garagem (${plan.cars} carro${plan.cars > 1 ? "s" : ""})` }]);
+            id = room.id;
+            const carItem = getLibraryItem("car");
+            const gateItem = getLibraryItem("door-garage");
+            if (carItem?.spec.elementType === "object") {
+              for (const bay of plan.bays) {
+                next = addElements(next, [{ ...createObject(next.elements, { ...carItem.spec, length: Math.min(carItem.spec.length, plan.depth - 0.6, 4.7) }, carItem.name, { x: a.x + bay.x, y: a.y + bay.y }, get().activeLevelId), rotation: bay.rotation }]);
+              }
+            }
+            // Portões na parede frontal (menor Y): a parede pode ter sido segmentada por vizinhos; procura a que contém o ponto.
+            if (gateItem?.spec.elementType === "door") {
+              for (const gate of plan.gates) {
+                const gx = a.x + gate.x;
+                const wall = next.elements.find((e): e is Wall => isWall(e) && e.levelId === get().activeLevelId && Math.abs(e.start.y - a.y) < 1e-4 && Math.abs(e.end.y - a.y) < 1e-4 && Math.min(e.start.x, e.end.x) <= gx + 1e-6 && Math.max(e.start.x, e.end.x) >= gx - 1e-6);
+                if (wall) next = addElements(next, [createOpening(next.elements, wall, { ...gateItem.spec, width: gate.width }, Math.abs(gx - Math.min(wall.start.x, wall.end.x)))]);
+              }
+            }
+            return next;
+          });
+          if (ok) set({ tool: selectTool, selectedId: id });
+          return;
+        }
+
         case "place": {
           const item = getLibraryItem(tool.itemId);
           if (!item) return;
@@ -606,7 +661,8 @@ export const useEditor = create<EditorState>((set, get) => {
             }
             let id = "";
             const ok = get().commit((proj) => {
-              const opening = createOpening(proj.elements, hit.wall, spec, hit.along);
+              const sized = tool.size ? { ...spec, width: tool.size.width, height: tool.size.height, ...(spec.elementType === "window" ? { sillHeight: tool.size.sillHeight ?? spec.sillHeight } : {}) } : spec;
+              const opening = createOpening(proj.elements, hit.wall, sized as typeof spec, hit.along);
               id = opening.id;
               return addElements(proj, [opening]);
             });

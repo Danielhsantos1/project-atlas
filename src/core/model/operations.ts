@@ -390,3 +390,31 @@ export function resizeRoom(project: Project, roomId: string, axis: "x" | "y", ne
   const center = axis === "x" ? { x: (r.minX + r.maxX + delta) / 2, y: room.seed.y } : { x: room.seed.x, y: (r.minY + r.maxY + delta) / 2 };
   return updateElement(next, roomId, { seed: center });
 }
+
+
+/**
+ * Altera o pé-direito de um pavimento: altura das paredes (exceto muros e guarda-corpos mais baixos que
+ * o pé-direito anterior), forros dos ambientes e a altura piso a piso (pé-direito + espessura de laje).
+ * Pavimentos acima são deslocados para manter a mesma espessura de laje entre níveis.
+ */
+export function setLevelCeilingHeight(project: Project, levelId: string, ceilingHeight: number, slabThickness = 0.2): Project {
+  const level = project.levels.find((l) => l.id === levelId);
+  if (!level) throw new DomainError("Pavimento não encontrado.");
+  if (!(ceilingHeight >= 2 && ceilingHeight <= 8)) throw new DomainError("O pé-direito deve estar entre 2,00 m e 8,00 m.");
+  const oldCeiling = Math.max(0, ...project.elements.filter((e) => isWall(e) && e.levelId === levelId).map((e) => (e as Wall).height));
+  const newHeight = roundTo(ceilingHeight + slabThickness, 6);
+  const delta = newHeight - level.height;
+  const levels = project.levels.map((l) => {
+    if (l.id === levelId) return { ...l, height: newHeight };
+    return l.elevation > level.elevation ? { ...l, elevation: roundTo(l.elevation + delta, 6) } : l;
+  });
+  const elements = project.elements.map((e): Element => {
+    if (!("levelId" in e) || e.levelId !== levelId) return e;
+    // Paredes de altura plena acompanham o novo pé-direito; muros/guarda-corpos baixos ficam como estão.
+    if (isWall(e) && e.height >= oldCeiling - 1e-6) return { ...e, height: ceilingHeight };
+    // Forro rebaixado (abaixo das paredes) é preservado; forro na altura das paredes acompanha o pé-direito.
+    if (isRoom(e)) return e.ceilingHeight < oldCeiling - 1e-6 ? { ...e, ceilingHeight: Math.min(e.ceilingHeight, ceilingHeight) } : { ...e, ceilingHeight };
+    return e;
+  });
+  return { ...project, levels: levels.sort((a, b) => a.elevation - b.elevation), elements };
+}

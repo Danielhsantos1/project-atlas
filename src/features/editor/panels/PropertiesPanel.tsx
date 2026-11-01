@@ -356,6 +356,7 @@ function LevelsSection({ project }: { project: Project }) {
               <TextField label="Nome" value={l.name} onCommit={(name) => s.updateLevel(l.id, { name })} />
               <LengthField label="Cota do piso" value={l.elevation} unit={unit} onCommit={(elevation) => s.updateLevel(l.id, { elevation })} />
               <LengthField label="Piso a piso" value={l.height} unit={unit} min={2} onCommit={(height) => s.updateLevel(l.id, { height })} />
+              <LengthField label="Pé-direito (paredes e forro)" value={Math.max(0, ...project.elements.filter((e) => e.type === "wall" && e.levelId === l.id).map((e) => (e.type === "wall" ? e.height : 0)))} unit={unit} min={2} onCommit={(h) => s.setCeilingHeight(l.id, h)} testId="level-ceiling-height" />
             </div>
           )}
         </div>

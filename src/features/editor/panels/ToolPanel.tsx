@@ -5,7 +5,8 @@ import {
   AppWindow, Bath, Bed, BedDouble, BrickWall, Briefcase, Car, ChevronRight, CookingPot, DoorOpen, Flame, Footprints, Home, Layers,
   MousePointer2, Search, ShowerHead, Sofa, Sun, Triangle, WashingMachine, LayoutGrid,
 } from "lucide-react";
-import { LIBRARY, LIBRARY_CATEGORIES, type LibraryItem } from "@/core/library/catalog";
+import { LIBRARY, LIBRARY_CATEGORIES, getLibraryItem, type LibraryItem } from "@/core/library/catalog";
+import { planGarage, type GarageLayout } from "@/core/planning/garage";
 import { getMaterial } from "@/core/model/materials";
 import { ROOM_TYPE_INFO } from "@/core/model/factory";
 import type { RoofType, RoomType } from "@/core/model/schema";
@@ -49,6 +50,16 @@ export function ToolPanel() {
     <div className="flex h-full flex-col overflow-y-auto" data-testid="tool-panel">
       <div className="border-b border-ink-700 p-2.5">
         <div className="label-caps mb-2 flex items-center gap-1.5 px-1"><Home size={12} /> Construir cômodos</div>
+        <button
+          onClick={() => useEditor.getState().setGarageTool(2, "lado-a-lado")}
+          data-testid="tool-garage"
+          aria-pressed={tool.kind === "garage"}
+          className={cn("mb-1.5 flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left text-[12px] transition-colors", tool.kind === "garage" ? "border-accent-line bg-accent-soft text-fg" : "border-ink-600 text-fg-muted hover:border-ink-500 hover:text-fg")}
+        >
+          <Car size={16} className={tool.kind === "garage" ? "text-accent" : ""} />
+          <span className="flex-1">Garagem por nº de carros</span>
+          <span className="text-[10.5px] text-fg-subtle">assistente</span>
+        </button>
         <div className="grid grid-cols-4 gap-1">
           {ROOM_ORDER.map((t) => {
             const Icon = ROOM_ICONS[t];
@@ -118,6 +129,7 @@ function ToolOptions({ tool, unit }: { tool: Tool; unit: "m" | "cm" | "mm" }) {
     floor: "Clique em dois cantos opostos para criar o piso ou laje.",
     roof: "Clique em dois cantos opostos sobre a casa. O beiral é acrescentado automaticamente.",
     place: "Clique no modelo para inserir. Portas e janelas: clique sobre uma parede.",
+    garage: "Clique no ponto da garagem (canto inferior esquerdo). Cômodo, vagas e portões são criados com as medidas calculadas.",
   };
   return (
     <div className="mt-2.5 space-y-2.5 rounded-md bg-ink-800/70 p-2.5">
@@ -140,10 +152,63 @@ function ToolOptions({ tool, unit }: { tool: Tool; unit: "m" | "cm" | "mm" }) {
           <MaterialField value={tool.preset.materialId} onChange={(materialId) => set({ materialId })} />
         </>
       )}
+      {tool.kind === "place" && <PlaceSizeOptions tool={tool} unit={unit} />}
+      {tool.kind === "garage" && <GarageOptions tool={tool} />}
       {tool.kind === "roof" && (
         <div className="grid grid-cols-2 gap-2">
           <SelectField label="Tipo" value={tool.roofType} options={(Object.keys(ROOF_TYPE_LABEL) as RoofType[]).map((r) => ({ value: r, label: ROOF_TYPE_LABEL[r] }))} onChange={(roofType) => set({ roofType })} />
           <AngleField label="Inclinação" value={tool.pitch} onCommit={(pitch) => { set({ pitch }); return pitch >= 0 && pitch <= 60; }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Medidas livres para a próxima porta/janela (sobrepõem as da biblioteca). */
+function PlaceSizeOptions({ tool, unit }: { tool: Extract<Tool, { kind: "place" }>; unit: "m" | "cm" | "mm" }) {
+  const item = getLibraryItem(tool.itemId);
+  const setSize = useEditor.getState().setPlaceSize;
+  if (!item || (item.spec.elementType !== "door" && item.spec.elementType !== "window")) return null;
+  const spec = item.spec;
+  const cur = tool.size ?? { width: spec.width, height: spec.height, sillHeight: spec.elementType === "window" ? spec.sillHeight : undefined };
+  const custom = tool.size !== undefined;
+  const update = (patch: Partial<typeof cur>) => { setSize({ ...cur, ...patch }); return true; };
+  return (
+    <div className="space-y-2 rounded-md border border-ink-600 p-2" data-testid="place-size">
+      <label className="flex cursor-pointer items-center gap-2 text-[12px] text-fg-muted">
+        <input type="checkbox" className="accent-accent" checked={custom} onChange={(e) => setSize(e.target.checked ? cur : null)} data-testid="custom-size-toggle" />
+        Usar tamanho personalizado
+      </label>
+      {custom && (
+        <div className="grid grid-cols-2 gap-2">
+          <LengthField label="Largura" value={cur.width} unit={unit} min={0.2} onCommit={(width) => update({ width })} testId="size-width" />
+          <LengthField label="Altura" value={cur.height} unit={unit} min={0.2} onCommit={(height) => update({ height })} testId="size-height" />
+          {spec.elementType === "window" && (
+            <LengthField label="Peitoril" value={cur.sillHeight ?? 0} unit={unit} min={0} onCommit={(sillHeight) => update({ sillHeight })} testId="size-sill" />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Assistente de garagem: nº de carros e disposição → dimensões calculadas. */
+export function GarageOptions({ tool }: { tool: Extract<Tool, { kind: "garage" }> }) {
+  const set = useEditor.getState().setGarageTool;
+  let plan: ReturnType<typeof planGarage> | null = null;
+  try { plan = planGarage(tool.cars, tool.layout); } catch { plan = null; }
+  return (
+    <div className="space-y-2" data-testid="garage-options">
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block text-[11px] text-fg-subtle">Veículos
+          <input type="number" min={1} max={12} value={tool.cars} data-testid="garage-cars" onChange={(e) => set(Math.min(12, Math.max(1, Math.round(Number(e.target.value) || 1))), tool.layout)} className="mt-1 h-7 w-full rounded border border-ink-600 bg-ink-900 px-2 font-mono text-[12px] text-fg focus:border-accent focus:outline-none" />
+        </label>
+        <SelectField label="Disposição" value={tool.layout} options={[{ value: "lado-a-lado", label: "Lado a lado" }, { value: "em-fila", label: "Em fila" }, { value: "duas-fileiras", label: "Duas fileiras" }]} onChange={(layout: GarageLayout) => set(tool.cars, layout)} />
+      </div>
+      {plan && (
+        <div className="rounded bg-ink-900 p-2 font-mono text-[11.5px] text-fg-muted" data-testid="garage-result">
+          {plan.width.toFixed(2).replace(".", ",")} × {plan.depth.toFixed(2).replace(".", ",")} m · {plan.area.toFixed(2).replace(".", ",")} m²
+          {plan.notes.map((n) => <p key={n} className="mt-1 font-sans text-[11px] text-fg-subtle">{n}</p>)}
         </div>
       )}
     </div>
